@@ -3,10 +3,28 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { extractEntitiesFromQuery, buildSearchSummary } from "./nlq";
 import { searchSalesforceFields, testBigQueryConnection } from "./bigquery";
-import { queryRequestSchema } from "@shared/schema";
+import { queryRequestSchema, insertSalesforceFieldSchema } from "@shared/schema";
 import { z } from "zod";
+import multer from "multer";
+import csv from "csv-parser";
+import { Readable } from "stream";
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  
+  // Configure multer for file uploads
+  const upload = multer({ 
+    storage: multer.memoryStorage(),
+    limits: {
+      fileSize: 50 * 1024 * 1024, // 50MB limit
+    },
+    fileFilter: (req, file, cb) => {
+      if (file.mimetype === 'text/csv' || file.originalname.endsWith('.csv')) {
+        cb(null, true);
+      } else {
+        cb(new Error('Only CSV files are allowed'));
+      }
+    }
+  });
   
   // Health check endpoint
   app.get("/api/health", async (req, res) => {
@@ -64,7 +82,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Log failed query
       if (req.body.query) {
-        await storage.logQuery(req.body.query, { object: null, keywords: [], dataType: null, intent: "find_fields" }, 0, processingTime, false, errorMessage);
+        await storage.logQuery(req.body.query, { object: undefined, keywords: [], dataType: undefined, intent: "find_fields" }, 0, processingTime, false, errorMessage);
       }
       
       console.error("Search error:", error);
@@ -94,6 +112,125 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching recent queries:", error);
       res.status(500).json({ error: "Failed to fetch recent queries" });
+    }
+  });
+
+  // CSV Upload endpoint
+  app.post("/api/upload-csv", upload.single('csvFile'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const csvData: any[] = [];
+      const stream = Readable.from(req.file.buffer);
+      
+      // Parse CSV data
+      await new Promise<void>((resolve, reject) => {
+        stream
+          .pipe(csv())
+          .on('data', (row) => {
+            csvData.push(row);
+          })
+          .on('end', () => {
+            resolve();
+          })
+          .on('error', (error) => {
+            reject(error);
+          });
+      });
+
+      if (csvData.length === 0) {
+        return res.status(400).json({ error: "CSV file is empty" });
+      }
+
+      // Transform CSV data to match our schema
+      const salesforceFields = csvData.map((row) => {
+        // Handle different possible CSV column names
+        const fieldLabel = row.fieldLabel || row.FieldLabel || row['Field Label'] || row.label || '';
+        const fieldApiName = row.fieldApiName || row.FieldApiName || row['Field API Name'] || row.apiName || '';
+        const objectLabel = row.objectLabel || row.ObjectLabel || row['Object Label'] || row.object || '';
+        const objectApiName = row.objectApiName || row.ObjectApiName || row['Object API Name'] || row.objectApi || '';
+        const dataType = row.dataType || row.DataType || row['Data Type'] || row.type || 'text';
+        const description = row.description || row.Description || '';
+        const helpText = row.helpText || row.HelpText || row['Help Text'] || '';
+        const formula = row.formula || row.Formula || '';
+        const isRequired = row.isRequired === 'true' || row.IsRequired === 'true' || row.required === 'true';
+        const isCustom = row.isCustom === 'true' || row.IsCustom === 'true' || row.custom === 'true';
+
+        // Parse picklist values if they exist
+        let picklistValues = null;
+        const picklistString = row.picklistValues || row.PicklistValues || row['Picklist Values'] || '';
+        if (picklistString) {
+          try {
+            picklistValues = JSON.parse(picklistString);
+          } catch {
+            // If not JSON, treat as comma-separated values
+            picklistValues = picklistString.split(',').map((v: string) => v.trim()).filter((v: string) => v);
+          }
+        }
+
+        // Parse tags if they exist
+        let tags = null;
+        const tagsString = row.tags || row.Tags || '';
+        if (tagsString) {
+          try {
+            tags = JSON.parse(tagsString);
+          } catch {
+            // If not JSON, treat as comma-separated values
+            tags = tagsString.split(',').map((v: string) => v.trim()).filter((v: string) => v);
+          }
+        }
+
+        return {
+          fieldLabel,
+          fieldApiName,
+          objectLabel,
+          objectApiName,
+          dataType,
+          description: description || null,
+          helpText: helpText || null,
+          formula: formula || null,
+          picklistValues,
+          tags,
+          isRequired,
+          isCustom,
+        };
+      }).filter(field => field.fieldLabel && field.fieldApiName); // Only include valid fields
+
+      // Clear existing data and insert new data
+      await storage.clearSalesforceFields();
+      await storage.insertSalesforceFields(salesforceFields);
+
+      res.json({
+        message: "CSV uploaded successfully",
+        recordsProcessed: salesforceFields.length,
+        totalRows: csvData.length,
+      });
+
+    } catch (error) {
+      console.error("CSV upload error:", error);
+      res.status(500).json({ 
+        error: "Failed to process CSV file",
+        message: error instanceof Error ? error.message : "Unknown error occurred"
+      });
+    }
+  });
+
+  // Get upload status
+  app.get("/api/upload-status", async (req, res) => {
+    try {
+      // Get count of records in database
+      const recentQueries = await storage.getRecentQueries(1);
+      res.json({
+        hasData: true, // We'll implement a proper count later
+        message: "Database is ready for queries"
+      });
+    } catch (error) {
+      res.json({
+        hasData: false,
+        message: "No data uploaded yet"
+      });
     }
   });
 
