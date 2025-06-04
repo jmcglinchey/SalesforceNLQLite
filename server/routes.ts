@@ -388,8 +388,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Transform and validate the data
       const transformedObjects = results.map((row) => {
-        const objectLabel = row.Label || row.ObjectLabel || '';
-        const objectApiName = row.ApiName || row.Name || row.ObjectApiName || '';
+        const objectLabel = row.Name || row.Label || row.ObjectLabel || '';
+        const objectApiName = row.ApiName || row.ObjectApiName || '';
         const description = row.Description && row.Description.trim() ? row.Description.trim() : null;
         const pluralLabel = row.PluralLabel && row.PluralLabel.trim() ? row.PluralLabel.trim() : null;
         const keyPrefix = row.KeyPrefix && row.KeyPrefix.trim() ? row.KeyPrefix.trim() : null;
