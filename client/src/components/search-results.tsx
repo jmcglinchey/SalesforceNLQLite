@@ -30,6 +30,7 @@ export default function SearchResults({ results, summary, onFieldSelect }: Searc
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Object</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Type</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Description</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Help Text</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
@@ -66,6 +67,13 @@ export default function SearchResults({ results, summary, onFieldSelect }: Searc
                     <div className="text-sm text-slate-600 max-w-xs">
                       {field.description ? truncateText(field.description, 100) : (
                         <span className="italic text-slate-400">No description available</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="text-sm text-slate-600 max-w-xs">
+                      {field.helpText ? truncateText(field.helpText, 100) : (
+                        <span className="italic text-slate-400">No help text available</span>
                       )}
                     </div>
                   </td>
