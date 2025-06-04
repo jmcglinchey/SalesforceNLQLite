@@ -121,6 +121,23 @@ export default function Home() {
             {/* Loading State */}
             {isSearching && <LoadingState />}
 
+            {/* AI Summary Section */}
+            {showResults && narrativeSummary && (
+              <section className="mb-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center">
+                      <Lightbulb className="h-5 w-5 mr-2 text-amber-500" />
+                      AI Summary
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-slate-700 leading-relaxed">{narrativeSummary}</p>
+                  </CardContent>
+                </Card>
+              </section>
+            )}
+
             {/* Search Results */}
             {showResults && (
               <SearchResults 
