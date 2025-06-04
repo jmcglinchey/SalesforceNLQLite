@@ -3,68 +3,7 @@ import { salesforceFields } from "@shared/schema";
 import { NLQEntity, SalesforceField, NLQSearchPlan, SearchCondition, FilterGroup } from "@shared/schema";
 import { ilike, or, and, sql } from "drizzle-orm";
 
-export async function searchSalesforceFieldsWithPlan(searchPlan: NLQSearchPlan): Promise<SalesforceField[]> {
-  try {
-    let whereConditions: any[] = [];
 
-    // Filter by target object if specified
-    if (searchPlan.targetObject) {
-      whereConditions.push(ilike(salesforceFields.objectLabel, `%${searchPlan.targetObject}%`));
-    }
-
-    // Process filter groups
-    if (searchPlan.filterGroups.length > 0) {
-      const groupConditions = searchPlan.filterGroups.map(group => {
-        const conditions = group.conditions.map(condition => {
-          const field = getFieldByName(condition.field);
-          if (!field) return null;
-
-          switch (condition.operator) {
-            case "ilike":
-              return ilike(field, condition.value as string);
-            case "equals_ignore_case":
-              return sql`LOWER(${field}) = LOWER(${condition.value})`;
-            case "contains_in_array_field":
-              // For comma-separated fields like tagIds
-              return ilike(field, `%${condition.value}%`);
-            default:
-              return null;
-          }
-        }).filter(Boolean);
-
-        if (conditions.length === 0) return null;
-
-        return group.logicalOperator === "OR" 
-          ? or(...conditions as any[])
-          : and(...conditions as any[]);
-      }).filter(Boolean);
-
-      if (groupConditions.length > 0) {
-        whereConditions.push(and(...groupConditions as any[]));
-      }
-    }
-
-    // Apply data type filter
-    if (searchPlan.dataTypeFilter) {
-      const dataTypeCondition = processSearchCondition(searchPlan.dataTypeFilter);
-      if (dataTypeCondition) {
-        whereConditions.push(dataTypeCondition);
-      }
-    }
-
-    // Build final query
-    const query = db
-      .select()
-      .from(salesforceFields)
-      .where(whereConditions.length > 0 ? and(...whereConditions) : undefined)
-      .limit(50);
-
-    return await query;
-  } catch (error) {
-    console.error("Error searching with plan:", error);
-    return [];
-  }
-}
 
 function getFieldByName(fieldName: string) {
   const fieldMap: Record<string, any> = {
@@ -101,52 +40,65 @@ function processSearchCondition(condition: SearchCondition) {
   }
 }
 
-export async function searchSalesforceFieldsInDB(entities: NLQEntity): Promise<SalesforceField[]> {
+export async function searchSalesforceFieldsInDB(plan: NLQSearchPlan): Promise<SalesforceField[]> {
   try {
-    let whereConditions: any[] = [];
+    let baseQuery = db.select().from(salesforceFields);
+    const allWhereConditions: any[] = [];
 
-    // Filter by object if specified
-    if (entities.object) {
-      whereConditions.push(
+    // Handle target object filter
+    if (plan.targetObject) {
+      allWhereConditions.push(
         or(
-          ilike(salesforceFields.objectLabel, `%${entities.object}%`),
-          ilike(salesforceFields.objectApiName, `%${entities.object}%`)
+          ilike(salesforceFields.objectLabel, `%${plan.targetObject}%`),
+          ilike(salesforceFields.objectApiName, `%${plan.targetObject}%`)
         )
       );
     }
 
-    // Filter by data type if specified
-    if (entities.dataType) {
-      whereConditions.push(
-        ilike(salesforceFields.dataType, `%${entities.dataType}%`)
-      );
-    }
-
-    // Search in keywords across multiple fields
-    if (entities.keywords.length > 0) {
-      const keywordConditions = entities.keywords.map(keyword => 
-        or(
-          ilike(salesforceFields.fieldLabel, `%${keyword}%`),
-          ilike(salesforceFields.description, `%${keyword}%`),
-          ilike(salesforceFields.helpText, `%${keyword}%`),
-          ilike(salesforceFields.complianceCategory, `%${keyword}%`),
-          ilike(salesforceFields.tagIds, `%${keyword}%`),
-          ilike(salesforceFields.owners, `%${keyword}%`),
-          ilike(salesforceFields.stakeholders, `%${keyword}%`)
-        )
-      );
-      
-      if (keywordConditions.length > 0) {
-        whereConditions.push(or(...keywordConditions));
+    // Handle data type filter
+    if (plan.dataTypeFilter) {
+      const field = getFieldByName(plan.dataTypeFilter.field);
+      if (field) {
+        const condition = processSearchCondition(plan.dataTypeFilter);
+        if (condition) {
+          allWhereConditions.push(condition);
+        }
       }
     }
 
-    // Build and execute the query
-    const results = whereConditions.length > 0 
-      ? await db.select().from(salesforceFields).where(and(...whereConditions)).limit(100)
-      : await db.select().from(salesforceFields).limit(100);
-    
-    return results;
+    // Process filter groups
+    plan.filterGroups.forEach(group => {
+      const groupConditions: any[] = [];
+      
+      group.conditions.forEach(condition => {
+        const field = getFieldByName(condition.field);
+        if (field) {
+          const processedCondition = processSearchCondition(condition);
+          if (processedCondition) {
+            groupConditions.push(processedCondition);
+          }
+        }
+      });
+
+      if (groupConditions.length > 0) {
+        if (group.logicalOperator === 'OR') {
+          allWhereConditions.push(or(...groupConditions));
+        } else {
+          allWhereConditions.push(and(...groupConditions));
+        }
+      }
+    });
+
+    // Build final query
+    let finalQuery;
+    if (allWhereConditions.length > 0) {
+      finalQuery = baseQuery.where(and(...allWhereConditions)).limit(100);
+    } else {
+      finalQuery = baseQuery.limit(100);
+    }
+
+    const results = await finalQuery;
+    return results as SalesforceField[];
 
   } catch (error) {
     console.error('Database search error:', error);

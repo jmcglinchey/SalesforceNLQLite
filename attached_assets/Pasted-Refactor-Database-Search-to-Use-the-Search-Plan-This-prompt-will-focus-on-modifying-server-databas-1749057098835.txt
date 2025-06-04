@@ -1,0 +1,116 @@
+Refactor Database Search to Use the "Search Plan"
+This prompt will focus on modifying server/database-search.ts.
+Context:
+Following up on Prompt 1, the extractEntitiesFromQuery function in server/nlq.ts now returns an NLQSearchPlan object (defined in KB: shared/schema.ts).
+We need to refactor searchSalesforceFieldsInDB in server/database-search.ts to use this NLQSearchPlan to construct its Drizzle ORM query.
+
+
+Task:
+Modify the searchSalesforceFieldsInDB function in server/database-search.ts.
+Change its parameter from entities: NLQEntity to plan: NLQSearchPlan.
+Rewrite the Drizzle query construction logic to dynamically build the WHERE clause based on plan.filterGroups, plan.targetObject, and plan.dataTypeFilter.
+
+
+Guidelines for Drizzle Query Construction:
+Iterate through plan.filterGroups. Each group's conditions are combined by its logicalOperator (AND/OR). Multiple filterGroups are typically combined with AND.
+For each condition in a filterGroup:
+Use ilike(salesforceFields[condition.field], \%${condition.value}%`)forilike` operator.
+For equals_ignore_case, you might use ilike(salesforceFields[condition.field], \
+
+
+condition.value)ˋ‘or‘sqllˋower(
+condition.value
+)
+ˋ
+​
+‘or‘sql
+l
+ˋ
+ower(
+{salesforceFields[condition.field]}) = lower(${condition.value})``.
+Handle plan.targetObject: if present, add a condition like or(ilike(salesforceFields.objectLabel, \%
+
+
+plan.targetObject
+plan.targetObject
+{plan.targetObject}%`))`.
+Handle plan.dataTypeFilter: if present, add its condition.
+
+
+Ensure all parts of the WHERE clause are correctly combined using Drizzle's and() and or() operators.
+Example Sketch (Conceptual - Replit should generate actual Drizzle code):
+
+// Inside searchSalesforceFieldsInDB(plan: NLQSearchPlan)
+import { sql, and, or, ilike } from "drizzle-orm";
+import { salesforceFields, type SalesforceField /* ...other imports... */ } from "@shared/schema";
+import { db } from "./db"; // Assuming db is your Drizzle instance
+
+// ...
+
+let baseQuery = db.select().from(salesforceFields);
+const allWhereConditions: any[] = [];
+
+if (plan.targetObject) {
+  allWhereConditions.push(
+    or(
+      ilike(salesforceFields.objectLabel, `%${plan.targetObject}%`),
+      ilike(salesforceFields.objectApiName, `%${plan.targetObject}%`)
+    )
+  );
+}
+
+if (plan.dataTypeFilter) {
+  // Assuming dataTypeFilter is a SearchCondition
+  const dtField = salesforceFields[plan.dataTypeFilter.field as keyof typeof salesforceFields];
+  if (dtField && plan.dataTypeFilter.operator === 'ilike' && typeof plan.dataTypeFilter.value === 'string') {
+    allWhereConditions.push(ilike(dtField, `%${plan.dataTypeFilter.value}%`));
+  }
+  // Add other operator handling for dataTypeFilter if needed
+}
+
+plan.filterGroups.forEach(group => {
+  const groupConditions: any[] = [];
+  group.conditions.forEach(condition => {
+    const field = salesforceFields[condition.field as keyof typeof salesforceFields];
+    if (field) { // Ensure field exists
+      if (condition.operator === 'ilike' && typeof condition.value === 'string') {
+        groupConditions.push(ilike(field, `%${condition.value}%`));
+      }
+      // Add more operator handling here (equals_ignore_case, etc.)
+    }
+  });
+
+  if (groupConditions.length > 0) {
+    if (group.logicalOperator === 'OR') {
+      allWhereConditions.push(or(...groupConditions));
+    } else {
+      allWhereConditions.push(and(...groupConditions)); // Default to AND if group operator is AND or unspecified
+    }
+  }
+});
+
+let finalQuery;
+if (allWhereConditions.length > 0) {
+  finalQuery = baseQuery.where(and(...allWhereConditions)).limit(100);
+} else {
+  finalQuery = baseQuery.limit(100); // Or handle as no criteria specified
+}
+
+const results = await finalQuery;
+return results as SalesforceField[]; // Cast if necessary, or ensure select() matches
+content_copy
+download
+Use code with caution.TypeScript
+
+
+
+
+Constraints:
+The function must securely translate the NLQSearchPlan into a Drizzle query. Avoid direct SQL string concatenation from plan values.
+Validate that condition.field from the plan actually exists as a column in salesforceFields before using it, to prevent errors.
+Maintain the .limit(100) or make it configurable.
+The return type Promise<SalesforceField[]> should remain the same.
+
+
+
+

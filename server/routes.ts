@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { extractEntitiesFromQuery, generateSearchPlan, buildSearchSummary } from "./nlq";
-import { searchSalesforceFieldsInDB, searchSalesforceFieldsWithPlan, testDatabaseConnection, getSalesforceFieldCount } from "./database-search";
+import { searchSalesforceFieldsInDB, testDatabaseConnection, getSalesforceFieldCount } from "./database-search";
 import { queryRequestSchema, insertSalesforceFieldSchema } from "@shared/schema";
 import { z } from "zod";
 import multer from "multer";
@@ -58,7 +58,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const searchPlan = await generateSearchPlan(query);
       
       // Search database using structured plan
-      const results = await searchSalesforceFieldsWithPlan(searchPlan);
+      const results = await searchSalesforceFieldsInDB(searchPlan);
       
       // Calculate processing time
       const processingTime = Date.now() - startTime;
