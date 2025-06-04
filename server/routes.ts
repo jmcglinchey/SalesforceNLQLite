@@ -60,10 +60,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Search database using structured plan
       const initialResults = await searchSalesforceFieldsInDB(searchPlan);
       
-      // Refine results using LLM for better relevance
-      const results = await refineSearchResultsWithLLM(query, searchPlan, initialResults);
+      // Conditional LLM refinement (only for sufficient results to make it worthwhile)
+      let refinedResults = initialResults;
+      let refinementApplied = false;
+      let refinementDetails = null;
       
-      // Calculate processing time
+      console.log(`[DEBUG] Initial results count: ${initialResults.length}, checking refinement threshold...`);
+      
+      if (initialResults.length > 5) {
+        console.log(`[DEBUG] Applying LLM refinement for ${initialResults.length} results...`);
+        try {
+          const refinementStartTime = Date.now();
+          refinedResults = await refineSearchResultsWithLLM(query, searchPlan, initialResults);
+          refinementApplied = true;
+          
+          const refinementTime = Date.now() - refinementStartTime;
+          refinementDetails = {
+            initialCount: initialResults.length,
+            refinedCount: refinedResults.length,
+            refinementTimeMs: refinementTime,
+            applied: true
+          };
+        } catch (error) {
+          console.error("LLM refinement failed, using initial results:", error);
+          refinedResults = initialResults;
+          refinementDetails = {
+            initialCount: initialResults.length,
+            refinedCount: initialResults.length,
+            applied: false,
+            error: "Refinement failed"
+          };
+        }
+      } else {
+        refinementDetails = {
+          initialCount: initialResults.length,
+          refinedCount: initialResults.length,
+          applied: false,
+          reason: "Insufficient results for refinement"
+        };
+      }
+      
+      // Calculate total processing time
       const processingTime = Date.now() - startTime;
       
       // Convert search plan to legacy entity format for logging
@@ -74,19 +111,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         intent: searchPlan.intent
       };
       
-      // Log the query for analytics
-      await storage.logQuery(query, legacyEntities, results.length, processingTime, true);
+      // Enhanced logging with refinement information
+      const logMessage = refinementApplied 
+        ? `Refined from ${initialResults.length} to ${refinedResults.length} results`
+        : `No refinement applied (${initialResults.length} results)`;
       
-      // Build enhanced search summary using the plan
-      const summary = buildSearchSummary(searchPlan, results.length);
+      await storage.logQuery(query, legacyEntities, refinedResults.length, processingTime, true, logMessage);
+      
+      // Build enhanced search summary using the plan and final results
+      const summary = buildSearchSummary(searchPlan, refinedResults.length);
       
       res.json({
         query,
         entities: searchPlan, // Include search plan as entities for frontend compatibility
-        results,
-        resultCount: results.length,
+        results: refinedResults,
+        resultCount: refinedResults.length,
         summary,
         processingTimeMs: processingTime,
+        refinementDetails
       });
       
     } catch (error) {
