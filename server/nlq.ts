@@ -41,6 +41,13 @@ CRITICAL: Object Inference Rules for targetObject (MUST follow these rules):
 
 4. Only set targetObject: null if truly no business context can be inferred
 
+CRITICAL: User Lookup / Ownership Inference Rules:
+1. When queries contain terms like "who", "owner", "manager", "responsible for", "created by", "modified by", "assigned to", or "my" (when referring to owned records):
+   a. Set 'dataTypeFilter' to: { "field": "dataType", "operator": "ilike", "value": "%Lookup(User)%" }
+   b. Add relevant keywords like "owner", "user", "manager", "created", "modified" to the 'filterGroups' targeting 'fieldLabel' and 'description'.
+2. For "my" queries (e.g., "my accounts"), assume "my" refers to an ownership context. Prioritize fields like "Account Owner" (which would be a Lookup(User)).
+3. If a specific field name like "Account Owner" is mentioned, prioritize that in 'filterGroups' alongside setting the 'dataTypeFilter' for 'Lookup(User)'.
+
 Generate a structured search plan in this exact JSON format:
 
 {
@@ -141,6 +148,67 @@ Query: "PII fields on Contact"
   ],
   "dataTypeFilter": null,
   "rawKeywords": ["PII", "Contact"]
+}
+
+Query: "Who owns the Acme account?"
+{
+  "intent": "find_fields",
+  "targetObject": "Account",
+  "filterGroups": [
+    {
+      "logicalOperator": "OR",
+      "conditions": [
+        { "field": "fieldLabel", "operator": "ilike", "value": "%owner%" },
+        { "field": "fieldLabel", "operator": "ilike", "value": "%Acme%" },
+        { "field": "description", "operator": "ilike", "value": "%owner%" },
+        { "field": "description", "operator": "ilike", "value": "%Acme%" }
+      ]
+    }
+  ],
+  "dataTypeFilter": { "field": "dataType", "operator": "ilike", "value": "%Lookup(User)%" },
+  "rawKeywords": ["who", "owns", "Acme", "account"]
+}
+
+Query: "Show me my open opportunities"
+{
+  "intent": "find_fields",
+  "targetObject": "Opportunity",
+  "filterGroups": [
+    {
+      "logicalOperator": "OR",
+      "conditions": [
+        { "field": "fieldLabel", "operator": "ilike", "value": "%owner%" },
+        { "field": "description", "operator": "ilike", "value": "%owner%" }
+      ]
+    },
+    {
+      "logicalOperator": "OR",
+      "conditions": [
+        { "field": "fieldLabel", "operator": "ilike", "value": "%open%" },
+        { "field": "description", "operator": "ilike", "value": "%open%" }
+      ]
+    }
+  ],
+  "dataTypeFilter": { "field": "dataType", "operator": "ilike", "value": "%Lookup(User)%" },
+  "rawKeywords": ["my", "open", "opportunities"]
+}
+
+Query: "Which user created this contact?"
+{
+  "intent": "find_fields",
+  "targetObject": "Contact",
+  "filterGroups": [
+    {
+      "logicalOperator": "OR",
+      "conditions": [
+        { "field": "fieldLabel", "operator": "ilike", "value": "%created by%" },
+        { "field": "fieldLabel", "operator": "ilike", "value": "%user%" },
+        { "field": "description", "operator": "ilike", "value": "%created by%" }
+      ]
+    }
+  ],
+  "dataTypeFilter": { "field": "dataType", "operator": "ilike", "value": "%Lookup(User)%" },
+  "rawKeywords": ["user", "created", "contact"]
 }
 
 Query: "${query}"

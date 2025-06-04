@@ -1,0 +1,125 @@
+**Context for the Prompt:**
+
+*   **Goal:** Improve NLQ's handling of queries like "who owns X" or "my Y" to prioritize Salesforce fields that are lookups to the User object (e.g., `DataType` is `Lookup(User)`).
+*   **Primary File to Modify:** `server/nlq.ts` (specifically the prompt within `generateSearchPlan`).
+*   **Supporting Files (Verification/Minor Adjustments):** `server/database-search.ts` (to ensure it uses the refined plan) and `shared/schema.ts` (to confirm `dataType` can store `Lookup(User)`).
+
+---
+
+**Prompt for Replit:**
+
+"We need to enhance our Salesforce NLQ application to better understand queries related to user ownership, such as 'who owns the account?' or 'show me my opportunities'. The goal is to make the system prioritize fields that are Lookups to the User object.
+
+Please implement the following:
+
+**1. Modify `server/nlq.ts` - `generateSearchPlan` Function:**
+
+*   **Task:** Update the system prompt provided to the OpenAI LLM within the `generateSearchPlan` function. The LLM needs to be instructed to specifically recognize ownership-related keywords ("who", "my", "owner", "created by", "modified by", etc.) and, when appropriate, set the `dataTypeFilter` in the `NLQSearchPlan` to target User lookup fields. It should also add relevant keywords to `filterGroups`.
+*   **Guidelines for Updating the LLM Prompt (within `generateSearchPlan`):**
+    *   **Add New Instructions:** Before the "CRITICAL: Object Inference Rules" and after "Available queryable fields...", insert a new section:
+        ```
+        CRITICAL: User Lookup / Ownership Inference Rules:
+        1. When queries contain terms like "who", "owner", "manager", "responsible for", "created by", "modified by", "assigned to", or "my" (when referring to owned records):
+           a. Set 'dataTypeFilter' to: { "field": "dataType", "operator": "ilike", "value": "%Lookup(User)%" }
+           b. Add relevant keywords like "owner", "user", "manager", "created", "modified" to the 'filterGroups' targeting 'fieldLabel' and 'description'.
+        2. For "my" queries (e.g., "my accounts"), assume "my" refers to an ownership context. Prioritize fields like "Account Owner" (which would be a Lookup(User)).
+        3. If a specific field name like "Account Owner" is mentioned, prioritize that in 'filterGroups' alongside setting the 'dataTypeFilter' for 'Lookup(User)'.
+        ```
+    *   **Add New Examples to the LLM Prompt:** Add these examples to the existing list of examples provided to the LLM within `generateSearchPlan`. Ensure the `dataType` values in your database for User Lookups are accurately represented (e.g., `Lookup(User)` or similar).
+        ```json
+        Query: "Who owns the Acme account?"
+        {
+          "intent": "find_fields",
+          "targetObject": "Account",
+          "filterGroups": [
+            {
+              "logicalOperator": "OR",
+              "conditions": [
+                { "field": "fieldLabel", "operator": "ilike", "value": "%owner%" },
+                { "field": "fieldLabel", "operator": "ilike", "value": "%Acme%" },
+                { "field": "description", "operator": "ilike", "value": "%owner%" },
+                { "field": "description", "operator": "ilike", "value": "%Acme%" }
+              ]
+            }
+          ],
+          "dataTypeFilter": { "field": "dataType", "operator": "ilike", "value": "%Lookup(User)%" },
+          "rawKeywords": ["who", "owns", "Acme", "account"]
+        }
+
+        Query: "Show me my open opportunities"
+        {
+          "intent": "find_fields",
+          "targetObject": "Opportunity",
+          "filterGroups": [
+            {
+              "logicalOperator": "AND", // "my" AND "open"
+              "conditions": [
+                { "field": "fieldLabel", "operator": "ilike", "value": "%owner%" }, // Implied by "my"
+                { "field": "description", "operator": "ilike", "value": "%owner%" }
+              ]
+            },
+            {
+                "logicalOperator": "OR",
+                "conditions": [
+                    { "field": "fieldLabel", "operator": "ilike", "value": "%open%" },
+                    { "field": "description", "operator": "ilike", "value": "%open%" }
+                ]
+            }
+          ],
+          "dataTypeFilter": { "field": "dataType", "operator": "ilike", "value": "%Lookup(User)%" },
+          "rawKeywords": ["my", "open", "opportunities"]
+        }
+
+        Query: "Which user created this contact?"
+        {
+          "intent": "find_fields",
+          "targetObject": "Contact",
+          "filterGroups": [
+            {
+              "logicalOperator": "OR",
+              "conditions": [
+                { "field": "fieldLabel", "operator": "ilike", "value": "%created by%" },
+                { "field": "fieldLabel", "operator": "ilike", "value": "%user%" },
+                { "field": "description", "operator": "ilike", "value": "%created by%" }
+              ]
+            }
+          ],
+          "dataTypeFilter": { "field": "dataType", "operator": "ilike", "value": "%Lookup(User)%" },
+          "rawKeywords": ["user", "created", "contact"]
+        }
+        ```
+    *   **Important:** Ensure the JSON output structure in the LLM prompt remains consistent with `nlqSearchPlanSchema`. The primary change is how the LLM populates `dataTypeFilter` and `filterGroups` based on these new rules.
+
+**2. Verify `server/database-search.ts` - `searchSalesforceFieldsInDB` Function:**
+
+*   **Task:** No direct code changes should be needed here if the LLM correctly populates `plan.dataTypeFilter` with `value: "%Lookup(User)%"`.
+*   **Verification:** Confirm that the existing logic:
+    ```typescript
+    // Handle data type filter
+    if (plan.dataTypeFilter) {
+      const field = getFieldByName(plan.dataTypeFilter.field); // Should be 'dataType'
+      if (field) {
+        const condition = processSearchCondition(plan.dataTypeFilter); // operator: 'ilike', value: '%Lookup(User)%'
+        if (condition) {
+          allWhereConditions.push(condition);
+        }
+      }
+    }
+    ```
+    will correctly translate to a SQL condition like `dataType ILIKE '%Lookup(User)%'`. This relies on the `dataType` column in your `salesforceFields` table containing strings like "Lookup(User)", "Lookup(Account)", etc.
+
+**3. Verify `shared/schema.ts`:**
+
+*   **Task:** Ensure the `dataType` field within your `salesforceFields` table schema definition (and any example CSV data `test-upload.csv`) can and does store values like "Lookup(User)".
+*   **Example Data Check:** If `test-upload.csv` has a field like "Account Owner", its `Type` column should be "Lookup(User)" or a similar distinct identifier that the LLM is trained to use and the database query can filter on.
+
+**Constraints & Considerations:**
+
+*   **Database `dataType` format:** The success of this heavily depends on the `dataType` column in your `salesforceFields` table having a consistent and queryable format for user lookups (e.g., "Lookup(User)", "User Lookup", etc.). The LLM prompt examples should reflect this exact format.
+*   **"My" queries:** True interpretation of "my" requires knowing the current user. Since this system doesn't have user authentication integrated into the query path, "my" is being treated as a strong indicator for "owner" type fields that are User Lookups.
+*   **LLM Robustness:** The LLM might not always perfectly infer this. Test with various phrasings.
+*   The LLM prompt within `generateSearchPlan` is getting quite long. Ensure it remains effective.
+
+This prompt focuses on making the LLM smarter in the planning phase, which should lead to more relevant results being fetched from the database directly. Good luck!"
+
+
