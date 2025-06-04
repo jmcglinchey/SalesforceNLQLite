@@ -60,12 +60,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Search database using structured plan
       const initialResults = await searchSalesforceFieldsInDB(searchPlan);
       
-      // Conditional LLM refinement (only for sufficient results to make it worthwhile)
+      // Apply LLM refinement and confidence scoring to all results
       let refinedResults = initialResults;
       let refinementApplied = false;
       let refinementDetails = null;
       
-      if (initialResults.length > 5) {
+      if (initialResults.length > 0) {
         try {
           const refinementStartTime = Date.now();
           refinedResults = await refineSearchResultsWithLLM(query, searchPlan, initialResults);
@@ -80,7 +80,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           };
         } catch (error) {
           console.error("LLM refinement failed, using initial results:", error);
-          refinedResults = initialResults;
+          refinedResults = initialResults.map(field => ({ ...field, matchConfidence: null }));
           refinementDetails = {
             initialCount: initialResults.length,
             refinedCount: initialResults.length,
@@ -93,7 +93,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           initialCount: initialResults.length,
           refinedCount: initialResults.length,
           applied: false,
-          reason: "Insufficient results for refinement"
+          reason: "No results to process"
         };
       }
       
