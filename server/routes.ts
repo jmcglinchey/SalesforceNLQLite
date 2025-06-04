@@ -151,9 +151,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "CSV file is empty" });
       }
 
-      console.log(`Parsed ${csvData.length} rows from CSV`);
-      console.log("First few rows:", csvData.slice(0, 3));
-
       // Transform CSV data to match our expanded schema
       const salesforceFields = csvData.map((row) => {
         // Core field information - trim whitespace and handle empty values
@@ -163,46 +160,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const objectApiName = (row.ParentDisplayName || '').trim(); // Using same as label for now
         const dataType = (row.Type || 'text').trim();
         
-        // Field metadata
-        const picklistValues = row.PicklistValues || null;
-        const ingestedBy = row.IngestedBy || null;
-        const populatedBy = row.PopulatedBy || null;
-        const notes = row.Notes || null;
-        const definition = row.Definition || null;
-        const description = row.Description || null;
-        const helpText = row.HelpText || null;
-        const formula = row.Formula || null;
+        // Field metadata - handle empty strings as null
+        const picklistValues = row.PicklistValues && row.PicklistValues.trim() ? row.PicklistValues.trim() : null;
+        const ingestedBy = row.IngestedBy && row.IngestedBy.trim() ? row.IngestedBy.trim() : null;
+        const populatedBy = row.PopulatedBy && row.PopulatedBy.trim() ? row.PopulatedBy.trim() : null;
+        const notes = row.Notes && row.Notes.trim() ? row.Notes.trim() : null;
+        const definition = row.Definition && row.Definition.trim() ? row.Definition.trim() : null;
+        const description = row.Description && row.Description.trim() ? row.Description.trim() : null;
+        const helpText = row.HelpText && row.HelpText.trim() ? row.HelpText.trim() : null;
+        const formula = row.Formula && row.Formula.trim() ? row.Formula.trim() : null;
         
         // Compliance and sensitivity
-        const complianceCategory = row.ComplianceCategory || null;
-        const fieldUsageId = row.FieldUsageId || null;
-        const dataSensitivityLevelId = row.DataSensitivityLevelId || null;
+        const complianceCategory = row.ComplianceCategory && row.ComplianceCategory.trim() ? row.ComplianceCategory.trim() : null;
+        const fieldUsageId = row.FieldUsageId && row.FieldUsageId.trim() ? row.FieldUsageId.trim() : null;
+        const dataSensitivityLevelId = row.DataSensitivityLevelId && row.DataSensitivityLevelId.trim() ? row.DataSensitivityLevelId.trim() : null;
         
         // Ownership and stakeholders
-        const owners = row.Owners || null;
-        const stakeholders = row.Stakeholders || null;
+        const owners = row.Owners && row.Owners.trim() ? row.Owners.trim() : null;
+        const stakeholders = row.Stakeholders && row.Stakeholders.trim() ? row.Stakeholders.trim() : null;
         const isFollowing = row.IsFollowing === 'TRUE' || row.IsFollowing === 'true';
-        const tagIds = row.TagIds || null;
+        const tagIds = row.TagIds && row.TagIds.trim() ? row.TagIds.trim() : null;
         
         // Field properties
         const isCustom = row.Custom === 'TRUE' || row.Custom === 'true';
         const isRequired = row.Required === 'TRUE' || row.Required === 'true';
         const isUnique = row.Unique === 'TRUE' || row.Unique === 'true';
-        const defaultValue = row.DefaultValue || null;
-        const scale = row.Scale ? parseInt(row.Scale) : null;
+        const defaultValue = row.DefaultValue && row.DefaultValue.trim() ? row.DefaultValue.trim() : null;
+        const scale = row.Scale && row.Scale.trim() ? parseInt(row.Scale) : null;
         
         // Audit fields
-        const createdBy = row.CreatedBy || null;
-        const salesforceCreatedDate = row.CreatedDate || null;
-        const lastModifiedBy = row.LastModifiedBy || null;
-        const salesforceLastModifiedDate = row.LastModifiedDate || null;
-        const managedPackage = row.ManagedPackage || null;
+        const createdBy = row.CreatedBy && row.CreatedBy.trim() ? row.CreatedBy.trim() : null;
+        const salesforceCreatedDate = row.CreatedDate && row.CreatedDate.trim() ? row.CreatedDate.trim() : null;
+        const lastModifiedBy = row.LastModifiedBy && row.LastModifiedBy.trim() ? row.LastModifiedBy.trim() : null;
+        const salesforceLastModifiedDate = row.LastModifiedDate && row.LastModifiedDate.trim() ? row.LastModifiedDate.trim() : null;
+        const managedPackage = row.ManagedPackage && row.ManagedPackage.trim() ? row.ManagedPackage.trim() : null;
         
         // Usage statistics
-        const populationPercentage = row.PopulationPercentage ? parseInt(row.PopulationPercentage) : null;
-        const referenceCount = row.ReferenceCount ? parseInt(row.ReferenceCount) : null;
-        const populatedAndTotalRecords = row.PopulatedAndTotalRecords || null;
-        const sourceUrl = row.SourceUrl || null;
+        const populationPercentage = row.PopulationPercentage && row.PopulationPercentage.trim() ? parseInt(row.PopulationPercentage) : null;
+        const referenceCount = row.ReferenceCount && row.ReferenceCount.trim() ? parseInt(row.ReferenceCount) : null;
+        const populatedAndTotalRecords = row.PopulatedAndTotalRecords && row.PopulatedAndTotalRecords.trim() ? row.PopulatedAndTotalRecords.trim() : null;
+        const sourceUrl = row.SourceUrl && row.SourceUrl.trim() ? row.SourceUrl.trim() : null;
 
         return {
           fieldLabel,
@@ -240,19 +237,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           populatedAndTotalRecords,
           sourceUrl,
         };
-      }).filter(field => {
-        const isValid = field.fieldLabel && field.fieldApiName && field.objectLabel;
-        if (!isValid && field.fieldLabel) {
-          console.log("Filtered out row:", { 
-            fieldLabel: field.fieldLabel, 
-            fieldApiName: field.fieldApiName, 
-            objectLabel: field.objectLabel 
-          });
-        }
-        return isValid;
-      }); // Only include valid fields with all required data
-
-      console.log(`Processing ${salesforceFields.length} valid fields out of ${csvData.length} total rows`);
+      }).filter(field => field.fieldLabel && field.fieldApiName && field.objectLabel); // Only include valid fields with all required data
 
       // Clear existing data and insert new data
       await storage.clearSalesforceFields();
