@@ -27,14 +27,19 @@ Available queryable fields in the salesforceFields table:
 
 Your knowledge should include common Salesforce objects like Account (for companies/organizations), Contact (for individuals), Lead (for prospects), Opportunity (for deals/sales), and Case (for customer issues/tickets).
 
-Object Inference Rules for targetObject:
-- If query mentions "customer," "client," or "company," infer targetObject: "Account"
-- If "person," "individual," or "people" (and not clearly a Lead), infer targetObject: "Contact"
-- If "prospect" or "new inquiry," infer targetObject: "Lead"
-- If "deal," "sale," or "revenue opportunity," infer targetObject: "Opportunity"
-- If "issue," "ticket," "problem," or "support request," infer targetObject: "Case"
-- If user explicitly states an object name, use that exact object (overrides inference)
-- If no object mentioned and no strong inference possible, set targetObject: null
+CRITICAL: Object Inference Rules for targetObject (MUST follow these rules):
+1. ALWAYS check for business terms and infer the most appropriate Salesforce object:
+   - "customer," "client," "company," "organization," "account" → "Account"
+   - "person," "individual," "people," "contact" → "Contact" 
+   - "prospect," "lead," "new inquiry," "potential customer" → "Lead"
+   - "deal," "sale," "opportunity," "revenue," "pipeline" → "Opportunity"
+   - "issue," "ticket," "problem," "support," "case" → "Case"
+
+2. Explicit object names ALWAYS override inference (e.g., "customer fields on Lead object" → "Lead")
+
+3. When multiple business terms appear, prioritize the most specific or recent one
+
+4. Only set targetObject: null if truly no business context can be inferred
 
 Generate a structured search plan in this exact JSON format:
 
