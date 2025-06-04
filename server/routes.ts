@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { extractEntitiesFromQuery, generateSearchPlan, buildSearchSummary } from "./nlq";
+import { extractEntitiesFromQuery, generateSearchPlan, buildSearchSummary, refineSearchResultsWithLLM } from "./nlq";
 import { searchSalesforceFieldsInDB, testDatabaseConnection, getSalesforceFieldCount } from "./database-search";
 import { queryRequestSchema, insertSalesforceFieldSchema } from "@shared/schema";
 import { z } from "zod";
@@ -58,7 +58,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const searchPlan = await generateSearchPlan(query);
       
       // Search database using structured plan
-      const results = await searchSalesforceFieldsInDB(searchPlan);
+      const initialResults = await searchSalesforceFieldsInDB(searchPlan);
+      
+      // Refine results using LLM for better relevance
+      const results = await refineSearchResultsWithLLM(query, searchPlan, initialResults);
       
       // Calculate processing time
       const processingTime = Date.now() - startTime;

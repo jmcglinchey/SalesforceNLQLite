@@ -1,0 +1,130 @@
+Context:
+You are Replit, an AI assistant enhancing my "Salesforce Data Dictionary NLQ" application.
+We currently have:
+generateSearchPlan(query: string): Creates an NLQSearchPlan.
+searchSalesforceFieldsInDB(plan: NLQSearchPlan): Fetches initial SalesforceField[] from the database.
+
+
+New Requirement: After fetching initial results, we want to use an LLM (GPT-4o) to re-rank or filter these results based on the original user query and the detailed context within the retrieved fields (like description, helpText, formula, fieldLabel for clues like "OLD", "Legacy").
+
+
+Task:
+Create a new asynchronous function in server/nlq.ts called refineSearchResultsWithLLM.
+This function will take the original user query, the NLQSearchPlan, and the initialResults: SalesforceField[] as input.
+It will then make an OpenAI call to get a refined list of results (or identifiers for them) and return this refined list.
+Guidelines for 
+Function Signature:
+
+import { SalesforceField, NLQSearchPlan, SearchResult } from "@shared/schema"; // Ensure SearchResult is imported if using it for the return type
+// ... other OpenAI imports
+
+
+export async function refineSearchResultsWithLLM(
+  originalQuery: string,
+  searchPlan: NLQSearchPlan, 
+  initialResults: SalesforceField[],
+  maxResultsToRefine: number = 20, // Limit how many results we send for refinement
+  maxFieldsToReturn: number = 10   // How many results the LLM should aim to return
+): Promise<SalesforceField[]> {
+  // ... implementation ...
+}
+
+Input Preparation for LLM:
+If initialResults is empty, return it immediately.
+Select a subset of initialResults (e.g., up to maxResultsToRefine) to send to the LLM.
+For each selected result, create a concise summary string or JSON object containing key fields.
+Essential fields: fieldLabel, fieldApiName, objectLabel, dataType.
+Important contextual fields: description (truncate to e.g., 200 chars), helpText (truncate to e.g., 150 chars), formula (truncate to e.g., 250 chars), tags (if tagIds is parsed into an array).
+Example format for each result passed to LLM:
+
+{ 
+  "id": "unique_identifier_or_index_from_initial_results", // To map back
+  "fieldLabel": "Annual Revenue", 
+  "fieldApiName": "AnnualRevenue", 
+  "objectLabel": "Account",
+  "dataType": "Currency",
+  "description": "Total annual revenue for the account...",
+  "helpText": "Calculated from all closed-won opportunities...",
+  "formula": "IF(IsClosedWon, Amount, 0)" // if applicable
+}
+
+
+
+
+
+OpenAI Prompt Design for Re-ranking:
+Role: "You are an intelligent Salesforce Data Steward. Your task is to review a list of Salesforce fields found by an initial search and select the most relevant ones that best answer the user's original query. You should also explain your reasoning for each selection or exclusion if possible (for the top few)."
+Input Context for LLM:
+The originalQuery.
+A summary of the searchPlan (e.g., "Initial search focused on object: [targetObject], keywords: [rawKeywords], dataType: [dataTypeFilter.value]").
+The list of summarized initialResults (as prepared above).
+
+
+Task Instructions for LLM:
+"Given the user query: [originalQuery]."
+"And the initial search criteria: [summary of searchPlan]."
+"Here are some fields found (up to [maxResultsToRefine]): [list of summarized field details]."
+"Please analyze these fields and identify up to [maxFieldsToReturn] that are most relevant to the user's query."
+"Consider the following when evaluating relevance:"
+"Direct keyword matches in label, description, help text."
+"Semantic relevance: Does the field's purpose (from description/help text/formula) align with the query's intent?"
+"Clues in fieldLabel or fieldApiName: Terms like 'OLD', 'Legacy', 'Archived', 'Inactive', 'Deprecated' usually mean less relevance unless specifically asked for. Prioritize fields that seem current."
+"If the query implies a calculation (e.g., 'calculates revenue'), examine the formula field closely."
+"Consistency with dataType if specified or implied by the query."
+"If multiple fields seem similar, prefer the one with a more detailed description or help text, or one that doesn't seem like a technical/system field unless the query implies it."
+
+
+Output Format Instruction (Crucial):
+"Respond with a JSON object in this exact format:
+
+{
+  "refinedFieldIdentifiers": [
+    { "fieldApiName": "string", "objectApiName": "string", "reasoning": "Brief explanation why this field is highly relevant or chosen." },
+    // ... up to maxFieldsToReturn
+  ],
+  "overallReasoning": "Optional: A brief summary of why this set of fields was chosen or how they collectively answer the query."
+}
+
+
+
+"The fieldApiName and objectApiName must exactly match one of the provided initial results."
+"If you believe none of the provided fields are a good match, return an empty refinedFieldIdentifiers array."
+
+
+
+
+Few-Shot Examples (Illustrative for the prompt you'd build):
+Query: "What field calculates total revenue for a deal?"
+Initial Results might include:
+{ "id": 0, "fieldLabel": "Opportunity Amount", "fieldApiName": "Amount", "objectLabel": "Opportunity", "dataType": "Currency", "description": "Primary deal amount"}
+{ "id": 1, "fieldLabel": "Expected Revenue", "fieldApiName": "ExpectedRevenue", "objectLabel": "Opportunity", "dataType": "Currency", "description": "Calculated based on probability.", "formula": "Amount * Probability"}
+{ "id": 2, "fieldLabel": "Old Deal Value (Archived)", "fieldApiName": "Old_Deal_Value__c", "objectLabel": "Opportunity", "dataType": "Currency", "description": "Legacy field for deal value."}
+
+
+Expected LLM JSON Output:
+
+{
+  "refinedFieldIdentifiers": [
+    { "fieldApiName": "ExpectedRevenue", "objectApiName": "Opportunity", "reasoning": "This field is a formula directly calculating revenue based on amount and probability, matching the query's intent of 'calculates total revenue'." },
+    { "fieldApiName": "Amount", "objectApiName": "Opportunity", "reasoning": "This is the primary deal amount, which is a core component of revenue, though not a calculation itself." }
+  ],
+  "overallReasoning": "Prioritized 'ExpectedRevenue' due to its formula. 'Old_Deal_Value__c' was excluded due to 'Old' and 'Archived' indicators suggesting it's not current."
+}
+
+
+
+
+
+Processing LLM Response:
+Parse the JSON response from OpenAI.
+Use the refinedFieldIdentifiers to filter and reorder the original initialResults array. The result of this step is SalesforceField[].
+Handle cases where the LLM returns empty refinedFieldIdentifiers (return an empty array or the original initialResults as a fallback, TBD).
+Handle errors from OpenAI call or JSON parsing (e.g., log error, return initialResults as fallback).
+
+
+
+
+Constraints:
+The function should be robust to errors from the LLM.
+Manage token limits by being selective about data sent (as per input preparation).
+The SalesforceField type from @shared/schema should be used for the elements in the returned array.

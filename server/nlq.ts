@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { NLQEntity, NLQSearchPlan, nlqEntitySchema, nlqSearchPlanSchema } from "@shared/schema";
+import { NLQEntity, NLQSearchPlan, SalesforceField, nlqEntitySchema, nlqSearchPlanSchema } from "@shared/schema";
 
 // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
 const openai = new OpenAI({ 
@@ -288,4 +288,121 @@ export function buildSearchSummary(plan: NLQSearchPlan, resultCount: number): st
   
   const summary = parts.length > 0 ? ` ${parts.join(' ')}` : '';
   return `Found ${resultCount} field${resultCount !== 1 ? 's' : ''}${summary}`;
+}
+
+export async function refineSearchResultsWithLLM(
+  originalQuery: string,
+  searchPlan: NLQSearchPlan,
+  initialResults: SalesforceField[],
+  maxResultsToRefine: number = 20,
+  maxFieldsToReturn: number = 10
+): Promise<SalesforceField[]> {
+  try {
+    // Return immediately if no results to refine
+    if (initialResults.length === 0) {
+      return initialResults;
+    }
+
+    // Select subset of results to send to LLM (limit for token management)
+    const resultsToAnalyze = initialResults.slice(0, maxResultsToRefine);
+    
+    // Prepare field summaries for LLM analysis
+    const fieldSummaries = resultsToAnalyze.map((field, index) => ({
+      id: index,
+      fieldLabel: field.fieldLabel,
+      fieldApiName: field.fieldApiName,
+      objectLabel: field.objectLabel,
+      objectApiName: field.objectApiName,
+      dataType: field.dataType,
+      description: field.description ? field.description.substring(0, 200) + (field.description.length > 200 ? '...' : '') : null,
+      helpText: field.helpText ? field.helpText.substring(0, 150) + (field.helpText.length > 150 ? '...' : '') : null,
+      formula: field.formula ? field.formula.substring(0, 250) + (field.formula.length > 250 ? '...' : '') : null,
+      tags: field.tagIds ? field.tagIds.split(',').map(tag => tag.trim()) : []
+    }));
+
+    // Build search plan summary for context
+    const searchPlanSummary = [
+      searchPlan.targetObject ? `object: ${searchPlan.targetObject}` : null,
+      searchPlan.rawKeywords ? `keywords: ${searchPlan.rawKeywords.join(', ')}` : null,
+      searchPlan.dataTypeFilter ? `dataType: ${searchPlan.dataTypeFilter.value}` : null
+    ].filter(Boolean).join(', ');
+
+    const prompt = `
+You are an intelligent Salesforce Data Steward. Your task is to review a list of Salesforce fields found by an initial search and select the most relevant ones that best answer the user's original query.
+
+Given the user query: "${originalQuery}"
+And the initial search criteria: ${searchPlanSummary}
+
+Here are ${resultsToAnalyze.length} fields found:
+${JSON.stringify(fieldSummaries, null, 2)}
+
+Please analyze these fields and identify up to ${maxFieldsToReturn} that are most relevant to the user's query.
+
+Consider the following when evaluating relevance:
+- Direct keyword matches in label, description, help text
+- Semantic relevance: Does the field's purpose align with the query's intent?
+- Clues in fieldLabel or fieldApiName: Terms like 'OLD', 'Legacy', 'Archived', 'Inactive', 'Deprecated' usually mean less relevance unless specifically asked for
+- If the query implies a calculation, examine the formula field closely
+- Consistency with dataType if specified or implied by the query
+- Prefer fields with detailed descriptions over technical/system fields unless specifically requested
+
+Respond with a JSON object in this exact format:
+{
+  "refinedFieldIdentifiers": [
+    { "fieldApiName": "string", "objectApiName": "string", "reasoning": "Brief explanation why this field is highly relevant" }
+  ],
+  "overallReasoning": "Brief summary of why this set of fields was chosen"
+}
+
+The fieldApiName and objectApiName must exactly match one of the provided fields. If none are good matches, return empty refinedFieldIdentifiers array.`;
+
+    // Call OpenAI
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o", // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
+      messages: [
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.1,
+    });
+
+    const content = response.choices[0].message.content;
+    if (!content) {
+      console.error("No response content from OpenAI refinement");
+      return initialResults;
+    }
+
+    // Parse LLM response
+    const refinementResult = JSON.parse(content);
+    const { refinedFieldIdentifiers } = refinementResult;
+
+    if (!Array.isArray(refinedFieldIdentifiers) || refinedFieldIdentifiers.length === 0) {
+      // Return original results if LLM found no good matches
+      return initialResults;
+    }
+
+    // Map refined identifiers back to original SalesforceField objects
+    const refinedResults: SalesforceField[] = [];
+    
+    for (const identifier of refinedFieldIdentifiers) {
+      const matchingField = initialResults.find(field => 
+        field.fieldApiName === identifier.fieldApiName && 
+        field.objectApiName === identifier.objectApiName
+      );
+      
+      if (matchingField) {
+        refinedResults.push(matchingField);
+      }
+    }
+
+    return refinedResults;
+
+  } catch (error) {
+    console.error("Error refining search results with LLM:", error);
+    // Return original results as fallback
+    return initialResults;
+  }
 }
