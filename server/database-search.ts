@@ -42,8 +42,6 @@ function processSearchCondition(condition: SearchCondition) {
 
 export async function searchSalesforceFieldsInDB(plan: NLQSearchPlan): Promise<SalesforceField[]> {
   try {
-    console.log("[DEBUG searchSalesforceFieldsInDB] Received NLQSearchPlan:", JSON.stringify(plan, null, 2));
-    
     let baseQuery = db.select().from(salesforceFields);
     const allWhereConditions: any[] = [];
 
@@ -69,18 +67,13 @@ export async function searchSalesforceFieldsInDB(plan: NLQSearchPlan): Promise<S
     }
 
     // Process filter groups
-    plan.filterGroups.forEach((group, groupIndex) => {
+    plan.filterGroups.forEach(group => {
       const groupConditions: any[] = [];
-      console.log(`[DEBUG] Processing filter group ${groupIndex}:`, JSON.stringify(group, null, 2));
       
-      group.conditions.forEach((condition, conditionIndex) => {
-        console.log(`[DEBUG] Processing condition ${conditionIndex}:`, JSON.stringify(condition, null, 2));
+      group.conditions.forEach(condition => {
         const field = getFieldByName(condition.field);
-        console.log(`[DEBUG] Field mapping for '${condition.field}':`, field ? 'FOUND' : 'NOT FOUND');
-        
         if (field) {
           const processedCondition = processSearchCondition(condition);
-          console.log(`[DEBUG] Processed condition result:`, processedCondition ? 'VALID' : 'INVALID');
           if (processedCondition) {
             groupConditions.push(processedCondition);
           }
@@ -103,8 +96,6 @@ export async function searchSalesforceFieldsInDB(plan: NLQSearchPlan): Promise<S
     } else {
       finalQuery = baseQuery.limit(100);
     }
-
-    console.log("[DEBUG searchSalesforceFieldsInDB] Drizzle Query:", JSON.stringify(finalQuery.toSQL(), null, 2));
 
     const results = await finalQuery;
     return results as SalesforceField[];

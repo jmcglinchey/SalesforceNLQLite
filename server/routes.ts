@@ -56,7 +56,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Generate structured search plan using OpenAI
       const searchPlan = await generateSearchPlan(query);
-      console.log("[DEBUG /api/search] Generated NLQSearchPlan:", JSON.stringify(searchPlan, null, 2));
       
       // Search database using structured plan
       const results = await searchSalesforceFieldsInDB(searchPlan);
