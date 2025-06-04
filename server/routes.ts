@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { extractEntitiesFromQuery, generateSearchPlan, buildSearchSummary, refineSearchResultsWithLLM, generateResultsSummary } from "./nlq";
+import { extractEntitiesFromQuery, generateSearchPlan, buildSearchSummary, refineSearchResultsWithLLM, refineObjectResultsWithLLM, generateResultsSummary } from "./nlq";
 import { searchSalesforceFieldsInDB, searchSalesforceObjectsInDB, testDatabaseConnection, getSalesforceFieldCount } from "./database-search";
 import { queryRequestSchema, insertSalesforceFieldSchema, insertSalesforceObjectSchema } from "@shared/schema";
 import { z } from "zod";
@@ -65,17 +65,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let refinementDetails = null;
 
       if (searchPlan.intent === "find_objects") {
-        objectResults = await searchSalesforceObjectsInDB(searchPlan);
-        summary = `Found ${objectResults.length} object(s)`;
-        if (objectResults.length > 0) {
-          narrativeSummary = `Discovered ${objectResults.length} Salesforce object(s) related to your query. Key objects include: ${objectResults.slice(0,3).map(o => o.objectLabel).join(', ')}.`;
+        const initialObjectResults = await searchSalesforceObjectsInDB(searchPlan);
+        
+        // Apply LLM refinement and confidence scoring to object results
+        if (initialObjectResults.length > 0) {
+          try {
+            const refinementStartTime = Date.now();
+            // Call the new refinement function for objects
+            objectResults = await refineObjectResultsWithLLM(query, searchPlan, initialObjectResults); 
+            
+            const refinementTime = Date.now() - refinementStartTime;
+            refinementDetails = {
+              initialCount: initialObjectResults.length,
+              refinedCount: objectResults.length,
+              refinementTimeMs: refinementTime,
+              applied: true,
+              type: "object"
+            };
+          } catch (error) {
+            console.error("LLM object refinement failed, using initial results:", error);
+            objectResults = initialObjectResults.map(obj => ({ ...obj, matchConfidence: null }));
+            refinementDetails = {
+              initialCount: initialObjectResults.length,
+              refinedCount: initialObjectResults.length,
+              applied: false,
+              error: "Object refinement failed",
+              type: "object"
+            };
+          }
+        } else {
+           objectResults = []; // Ensure it's an empty array
+           refinementDetails = {
+              initialCount: 0,
+              refinedCount: 0,
+              applied: false,
+              reason: "No object results to process",
+              type: "object"
+           };
         }
-        refinementDetails = {
-          initialCount: objectResults.length,
-          refinedCount: objectResults.length,
-          applied: false,
-          reason: "Object search does not use refinement"
-        };
+        
+        summary = `Found ${objectResults.length} object(s) matching your query.`; 
+        if (objectResults.length > 0) {
+          narrativeSummary = `Discovered ${objectResults.length} Salesforce object(s). Key objects include: ${objectResults.slice(0,3).map(o => o.objectLabel).join(', ')}.`;
+        } else {
+          narrativeSummary = "No relevant Salesforce objects found for this query.";
+        }
       } else if (searchPlan.intent === "find_fields") {
         const initialResults = await searchSalesforceFieldsInDB(searchPlan);
         

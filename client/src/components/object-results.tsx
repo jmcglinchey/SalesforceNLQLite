@@ -2,6 +2,7 @@ import { SalesforceObject } from "@shared/schema";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Database } from "lucide-react";
+import { getConfidenceBadgeClass } from "@/lib/utils";
 
 interface ObjectResultsProps {
   results: SalesforceObject[];
@@ -13,6 +14,21 @@ export default function ObjectResults({ results, summary }: ObjectResultsProps) 
     return null;
   }
 
+  // Sort objects by confidence score
+  const confidenceOrder = { High: 1, Medium: 2, Low: 3 };
+  const sortedObjectResults = [...results].sort((a, b) => {
+    const confidenceA = a.matchConfidence || 'Low';
+    const confidenceB = b.matchConfidence || 'Low';
+    const orderA = confidenceOrder[confidenceA as keyof typeof confidenceOrder] || 4;
+    const orderB = confidenceOrder[confidenceB as keyof typeof confidenceOrder] || 4;
+  
+    if (orderA !== orderB) {
+      return orderA - orderB;
+    }
+    // Secondary sort: alphabetical by object label
+    return a.objectLabel.localeCompare(b.objectLabel);
+  });
+
   return (
     <section className="mb-8">
       <div className="mb-4">
@@ -20,13 +36,20 @@ export default function ObjectResults({ results, summary }: ObjectResultsProps) 
         {summary && <p className="text-sm text-slate-600 dark:text-slate-400">{summary}</p>}
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {results.map((obj) => (
+        {sortedObjectResults.map((obj) => (
           <Card key={obj.objectApiName} className="bg-white dark:bg-slate-800 shadow-sm hover:shadow-md transition-shadow border border-slate-200 dark:border-slate-700">
             <CardHeader>
-              <CardTitle className="flex items-center text-lg text-slate-900 dark:text-slate-100">
-                <Database className="h-5 w-5 mr-2 text-blue-600 dark:text-blue-400" />
-                {obj.objectLabel}
-              </CardTitle>
+              <div className="flex justify-between items-start">
+                <CardTitle className="flex items-center text-lg text-slate-900 dark:text-slate-100">
+                  <Database className="h-5 w-5 mr-2 text-blue-600 dark:text-blue-400" />
+                  {obj.objectLabel}
+                </CardTitle>
+                {obj.matchConfidence && (
+                  <Badge className={getConfidenceBadgeClass(obj.matchConfidence)}>
+                    {obj.matchConfidence}
+                  </Badge>
+                )}
+              </div>
               <CardDescription className="text-slate-600 dark:text-slate-400">
                 API Name: <code className="bg-slate-100 dark:bg-slate-700 px-1 py-0.5 rounded text-xs">{obj.objectApiName}</code>
               </CardDescription>
