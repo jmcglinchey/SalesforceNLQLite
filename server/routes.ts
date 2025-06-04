@@ -2,8 +2,8 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { extractEntitiesFromQuery, generateSearchPlan, buildSearchSummary, refineSearchResultsWithLLM, generateResultsSummary } from "./nlq";
-import { searchSalesforceFieldsInDB, testDatabaseConnection, getSalesforceFieldCount } from "./database-search";
-import { queryRequestSchema, insertSalesforceFieldSchema } from "@shared/schema";
+import { searchSalesforceFieldsInDB, searchSalesforceObjectsInDB, testDatabaseConnection, getSalesforceFieldCount } from "./database-search";
+import { queryRequestSchema, insertSalesforceFieldSchema, insertSalesforceObjectSchema } from "@shared/schema";
 import { z } from "zod";
 import multer from "multer";
 import csv from "csv-parser";
@@ -57,44 +57,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Generate structured search plan using OpenAI
       const searchPlan = await generateSearchPlan(query);
       
-      // Search database using structured plan
-      const initialResults = await searchSalesforceFieldsInDB(searchPlan);
-      
-      // Apply LLM refinement and confidence scoring to all results
-      let refinedResults = initialResults;
-      let refinementApplied = false;
+      // Search database based on intent
+      let fieldResults: any[] = [];
+      let objectResults: any[] = [];
+      let narrativeSummary = "No information found for this query.";
+      let summary = "No results.";
       let refinementDetails = null;
-      
-      if (initialResults.length > 0) {
-        try {
-          const refinementStartTime = Date.now();
-          refinedResults = await refineSearchResultsWithLLM(query, searchPlan, initialResults);
-          refinementApplied = true;
-          
-          const refinementTime = Date.now() - refinementStartTime;
-          refinementDetails = {
-            initialCount: initialResults.length,
-            refinedCount: refinedResults.length,
-            refinementTimeMs: refinementTime,
-            applied: true
-          };
-        } catch (error) {
-          console.error("LLM refinement failed, using initial results:", error);
-          refinedResults = initialResults.map(field => ({ ...field, matchConfidence: null }));
+
+      if (searchPlan.intent === "find_objects") {
+        objectResults = await searchSalesforceObjectsInDB(searchPlan);
+        summary = `Found ${objectResults.length} object(s)`;
+        if (objectResults.length > 0) {
+          narrativeSummary = `Discovered ${objectResults.length} Salesforce object(s) related to your query. Key objects include: ${objectResults.slice(0,3).map(o => o.objectLabel).join(', ')}.`;
+        }
+        refinementDetails = {
+          initialCount: objectResults.length,
+          refinedCount: objectResults.length,
+          applied: false,
+          reason: "Object search does not use refinement"
+        };
+      } else if (searchPlan.intent === "find_fields") {
+        const initialResults = await searchSalesforceFieldsInDB(searchPlan);
+        
+        // Apply LLM refinement and confidence scoring to field results
+        let refinedResults = initialResults;
+        
+        if (initialResults.length > 0) {
+          try {
+            const refinementStartTime = Date.now();
+            refinedResults = await refineSearchResultsWithLLM(query, searchPlan, initialResults);
+            
+            const refinementTime = Date.now() - refinementStartTime;
+            refinementDetails = {
+              initialCount: initialResults.length,
+              refinedCount: refinedResults.length,
+              refinementTimeMs: refinementTime,
+              applied: true
+            };
+          } catch (error) {
+            console.error("LLM refinement failed, using initial results:", error);
+            refinedResults = initialResults.map(field => ({ ...field, matchConfidence: null }));
+            refinementDetails = {
+              initialCount: initialResults.length,
+              refinedCount: initialResults.length,
+              applied: false,
+              error: "Refinement failed"
+            };
+          }
+        } else {
           refinementDetails = {
             initialCount: initialResults.length,
             refinedCount: initialResults.length,
             applied: false,
-            error: "Refinement failed"
+            reason: "No results to process"
           };
         }
-      } else {
-        refinementDetails = {
-          initialCount: initialResults.length,
-          refinedCount: initialResults.length,
-          applied: false,
-          reason: "No results to process"
-        };
+        
+        fieldResults = refinedResults;
+        summary = buildSearchSummary(searchPlan, fieldResults.length);
+        narrativeSummary = fieldResults.length > 0 
+          ? await generateResultsSummary(query, fieldResults)
+          : "No specific fields found to summarize for this query.";
       }
       
       // Calculate total processing time
@@ -105,29 +128,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         object: searchPlan.targetObject,
         keywords: searchPlan.rawKeywords || [],
         dataType: searchPlan.dataTypeFilter?.value as string || null,
-        intent: searchPlan.intent
+        intent: searchPlan.intent === "find_objects" ? "find_fields" : searchPlan.intent // Map find_objects to find_fields for logging compatibility
       };
       
-      // Enhanced logging with refinement information
-      const logMessage = refinementApplied 
-        ? `Refined from ${initialResults.length} to ${refinedResults.length} results`
-        : `No refinement applied (${initialResults.length} results)`;
+      // Calculate result count based on intent
+      const resultCount = searchPlan.intent === "find_objects" ? objectResults.length : fieldResults.length;
       
-      await storage.logQuery(query, legacyEntities, refinedResults.length, processingTime, true, logMessage);
+      // Enhanced logging
+      const logMessage = searchPlan.intent === "find_objects" 
+        ? `Object search returned ${objectResults.length} results`
+        : refinementDetails?.applied 
+          ? `Refined from ${refinementDetails.initialCount} to ${fieldResults.length} results`
+          : `Field search returned ${fieldResults.length} results`;
       
-      // Generate narrative summary of results
-      const narrativeSummary = refinedResults.length > 0 
-        ? await generateResultsSummary(query, refinedResults)
-        : "No specific fields found to summarize for this query.";
-      
-      // Build enhanced search summary using the plan and final results
-      const summary = buildSearchSummary(searchPlan, refinedResults.length);
+      await storage.logQuery(query, legacyEntities, resultCount, processingTime, true, logMessage);
       
       res.json({
         query,
         entities: searchPlan, // Include search plan as entities for frontend compatibility
-        results: refinedResults,
-        resultCount: refinedResults.length,
+        fieldResults,       // Array of SearchResult (fields)
+        objectResults,      // Array of SalesforceObject 
+        results: fieldResults, // Backward compatibility - keep existing results field for fields
+        resultCount,
         summary,
         narrativeSummary,
         processingTimeMs: processingTime,
@@ -328,6 +350,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
         hasData: false,
         fieldCount: 0,
         message: "No data uploaded yet"
+      });
+    }
+  });
+
+  // Object CSV Upload endpoint
+  app.post("/api/upload-objects-csv", upload.single('csvFile'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const csvData = req.file.buffer.toString('utf-8');
+      const results: any[] = [];
+
+      // Parse CSV data
+      await new Promise((resolve, reject) => {
+        const stream = Readable.from([csvData]);
+        stream
+          .pipe(csv())
+          .on('data', (row) => {
+            results.push(row);
+          })
+          .on('end', resolve)
+          .on('error', reject);
+      });
+
+      // Transform and validate the data
+      const transformedObjects = results.map((row) => {
+        const objectLabel = row.Label || row.ObjectLabel || '';
+        const objectApiName = row.ApiName || row.Name || row.ObjectApiName || '';
+        const description = row.Description && row.Description.trim() ? row.Description.trim() : null;
+        const pluralLabel = row.PluralLabel && row.PluralLabel.trim() ? row.PluralLabel.trim() : null;
+        const keyPrefix = row.KeyPrefix && row.KeyPrefix.trim() ? row.KeyPrefix.trim() : null;
+        const isCustom = row.IsCustom === 'TRUE' || row.IsCustom === 'true' || row.Custom === 'TRUE' || row.Custom === 'true';
+        const tags = row.Tags && row.Tags.trim() ? row.Tags.trim() : null;
+        const sharingModel = row.SharingModel && row.SharingModel.trim() ? row.SharingModel.trim() : null;
+
+        return {
+          objectLabel,
+          objectApiName,
+          description,
+          pluralLabel,
+          keyPrefix,
+          isCustom,
+          tags,
+          sharingModel
+        };
+      }).filter(obj => obj.objectLabel && obj.objectApiName);
+
+      // Validate using schema
+      const validatedObjects = transformedObjects.map(obj => 
+        insertSalesforceObjectSchema.parse(obj)
+      );
+
+      // Clear existing data and insert new data
+      await storage.clearSalesforceObjects();
+      await storage.insertSalesforceObjects(validatedObjects);
+
+      res.json({
+        message: `Successfully uploaded ${validatedObjects.length} Salesforce objects`,
+        recordsProcessed: validatedObjects.length,
+        totalRows: results.length,
+        objectCount: validatedObjects.length
+      });
+
+    } catch (error) {
+      console.error("Object CSV upload error:", error);
+      res.status(500).json({ 
+        error: "Failed to upload object CSV",
+        message: error instanceof Error ? error.message : "Unknown error occurred"
       });
     }
   });

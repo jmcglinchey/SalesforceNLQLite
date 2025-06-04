@@ -317,6 +317,44 @@ Query: "Is the high priority contact active?"
   "rawKeywords": ["high priority", "contact", "active"]
 }
 
+Query: "Tell me about the Account object"
+{
+  "intent": "find_objects",
+  "targetObject": "Account",
+  "filterGroups": [
+    {
+      "logicalOperator": "OR",
+      "conditions": [
+        { "field": "objectLabel", "operator": "ilike", "value": "%Account%" },
+        { "field": "objectApiName", "operator": "ilike", "value": "%Account%" }
+      ]
+    }
+  ],
+  "dataTypeFilter": null,
+  "rawKeywords": ["tell me about", "Account", "object"]
+}
+
+Query: "What Salesforce objects are related to sales and marketing?"
+{
+  "intent": "find_objects",
+  "targetObject": null,
+  "filterGroups": [
+    {
+      "logicalOperator": "OR",
+      "conditions": [
+        { "field": "description", "operator": "ilike", "value": "%sales%" },
+        { "field": "tags", "operator": "ilike", "value": "%sales%" },
+        { "field": "objectLabel", "operator": "ilike", "value": "%sales%" },
+        { "field": "description", "operator": "ilike", "value": "%marketing%" },
+        { "field": "tags", "operator": "ilike", "value": "%marketing%" },
+        { "field": "objectLabel", "operator": "ilike", "value": "%marketing%" }
+      ]
+    }
+  ],
+  "dataTypeFilter": null,
+  "rawKeywords": ["objects", "related to", "sales", "marketing"]
+}
+
 Query: "What are the status options for leads?"
 {
   "intent": "find_fields",
