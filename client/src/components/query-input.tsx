@@ -8,7 +8,7 @@ import { SearchResult } from "@shared/schema";
 
 interface QueryInputProps {
   onSearchStart: () => void;
-  onSearchResults: (results: SearchResult[], summary: string) => void;
+  onSearchResults: (results: SearchResult[], summary: string, narrativeSummary?: string) => void;
   onSearchError: () => void;
 }
 
@@ -38,7 +38,11 @@ export default function QueryInput({ onSearchStart, onSearchResults, onSearchErr
         throw new Error(data.message || "Search failed");
       }
 
-      onSearchResults(data.results || [], data.summary || `Found ${data.resultCount || 0} results`);
+      onSearchResults(
+        data.results || [], 
+        data.summary || `Found ${data.resultCount || 0} results`,
+        data.narrativeSummary || ""
+      );
       
       toast({
         title: "Search completed",

@@ -1,0 +1,180 @@
+1.  **New LLM Function for Summarization:** Create a function in `server/nlq.ts` that takes the original query and the final list of `SalesforceField` results to generate a textual summary.
+2.  **API Integration:** Modify the `/api/search` route in `server/routes.ts` to call this new summarization function and add its output to the response.
+3.  **Frontend Display:** Update `client/src/pages/home.tsx` to display this summary.
+
+---
+
+**Create LLM Function for Generating a Results Summary**
+
+This prompt focuses on adding a new function to `server/nlq.ts`.
+
+*   **Context:**
+    *   You are Replit, an AI assistant enhancing my "Salesforce Data Dictionary NLQ" application.
+    *   The application currently:
+        1.  Generates an `NLQSearchPlan` from the user's query.
+        2.  Fetches initial results using `searchSalesforceFieldsInDB`.
+        3.  (Potentially) Refines these results using `refineSearchResultsWithLLM`.
+    *   **New Requirement:** After obtaining the final list of `SalesforceField` results, we need to generate a concise, natural language summary that explains how these results answer the user's original query. This summary should highlight key fields, the object(s) involved, and if the query is about a calculation, it should explain the logic (e.g., by referencing formulas).
+*   **Task:**
+    Create a new asynchronous function in `server/nlq.ts` called `generateResultsSummary`.
+    This function will take the `originalQuery: string` and the `finalResults: SalesforceField[]` as input.
+    It will make an OpenAI call (GPT-4o) to generate a textual summary and return this summary as a string.
+*   **Guidelines for `generateResultsSummary` function in `server/nlq.ts`:**
+    1.  **Function Signature:**
+        ```typescript
+        import { SalesforceField } from "@shared/schema";
+        // ... other OpenAI imports
+
+        export async function generateResultsSummary(
+          originalQuery: string,
+          finalResults: SalesforceField[],
+          maxFieldsToConsiderForSummary: number = 5 // Limit how many fields are detailed in the prompt
+        ): Promise<string> {
+          // ... implementation ...
+        }
+        ```
+    2.  **Input Preparation for LLM (Crucial for good summaries and token management):**
+        *   If `finalResults` is empty, return a simple message like "No specific fields found to summarize for this query." or an empty string.
+        *   Select a subset of `finalResults` (e.g., top `maxFieldsToConsiderForSummary`, ideally those deemed most relevant by previous steps or just the first few) to send to the LLM for detailed consideration.
+        *   For each selected result, create a concise summary string or JSON object containing key fields that would be useful for summarization:
+            *   **Essential:** `fieldLabel`, `fieldApiName`, `objectLabel`, `dataType`.
+            *   **Very Important for Summaries:** `description` (truncate to e.g., 150 chars), `helpText` (truncate to e.g., 100 chars), `formula` (if relevant and not too long, e.g., 200 chars).
+            *   Example format for each result passed to LLM (can be a string representation for conciseness):
+                `"Field: Annual Revenue (AnnualRevenue) on Account, Type: Currency, Description: Total annual revenue..., Formula: (if applicable)"`
+    3.  **OpenAI Prompt Design for Summarization:**
+        *   **Role:** "You are an expert Salesforce data analyst. Your task is to provide a concise and helpful summary explaining how the provided Salesforce fields answer the user's original query. Focus on clarity and actionable insights."
+        *   **Input Context for LLM:**
+            *   The `originalQuery`.
+            *   The list of summarized `finalResults` (as prepared above).
+        *   **Task Instructions for LLM:**
+            *   "Given the user's query: `[originalQuery]`"
+            *   "And the most relevant fields found: `[list of summarized field details for top N fields]`."
+            *   "Please generate a natural language summary (2-4 sentences) that directly addresses the user's query using information from these fields."
+            *   **"If the query asks 'how to calculate' something or implies a process:**
+                *   Explain the logic.
+                *   If a `formula` is present in the relevant fields and seems to directly answer the question, explain it simply or state the formula.
+                *   Mention the key fields involved in the calculation and their object(s)."
+            *   **"If the query asks 'what' or 'which' fields:**
+                *   Briefly state the purpose of the key fields returned in relation to the query.
+                *   Mention the primary Salesforce object(s) where these fields can be found."
+            *   "Be concise and directly answer the user's question. Avoid jargon where possible."
+            *   "If the provided fields don't seem to fully answer the query, acknowledge that while still summarizing what was found."
+            *   "Do not just list the fields; synthesize the information into a coherent explanation."
+        *   **Few-Shot Examples (Illustrative for the prompt you'd build):**
+            *   *Original Query: "How do I calculate revenue for my deals?"*
+            *   *Relevant Fields (summarized):*
+                *   `Field: Expected Revenue (ExpectedRevenue) on Opportunity, Type: Currency, Formula: Amount * Probability, Description: Forecasted revenue.`
+                *   `Field: Amount (Amount) on Opportunity, Type: Currency, Description: Total value of the deal.`
+                *   `Field: Probability (Probability) on Opportunity, Type: Percent, Description: Likelihood of closing.`
+            *   *Expected LLM Summary Output:*
+                `"To calculate revenue for your deals on the Opportunity object, you can use the 'Expected Revenue' field. This is typically calculated using its formula: Amount * Probability. Key fields involved are 'Amount' (the total deal value) and 'Probability' (the likelihood of closing)."`
+
+            *   *Original Query: "What fields show customer address on Account?"*
+            *   *Relevant Fields (summarized):*
+                *   `Field: Billing Street (BillingStreet) on Account, Type: Address, Description: The street address for billing.`
+                *   `Field: Billing City (BillingCity) on Account, Type: Text, Description: The city for billing.`
+                *   `Field: Shipping Street (ShippingStreet) on Account, Type: Address, Description: The street address for shipping.`
+            *   *Expected LLM Summary Output:*
+                `"For customer addresses on the Account object, you can use fields like 'Billing Street', 'Billing City' for billing purposes, and 'Shipping Street' for shipping details. These fields store the respective parts of the address."`
+    4.  **Processing LLM Response:**
+        *   The LLM should return a text string.
+        *   Perform basic cleanup if necessary (e.g., trim whitespace).
+        *   Handle errors from OpenAI call (e.g., log error, return a default message like "Unable to generate summary at this time.").
+*   **Constraints:**
+    *   The function must return a `Promise<string>`.
+    *   Be mindful of token limits for the prompt; the summarized field data is key here.
+    *   The summary should be factual based on the provided field data. Instruct the LLM against hallucinating details not present in the `finalResults`.
+
+---
+
+**Prompt 2: Integrate Summary Generation into the API Search Route**
+
+This prompt will focus on modifying `server/routes.ts`.
+
+*   **Context:**
+    *   We now have a `generateResultsSummary(originalQuery, finalResults)` function in `server/nlq.ts` (from Prompt 1).
+    *   The main search logic is in the `/api/search` endpoint in `server/routes.ts`. This endpoint already handles getting `initialResults` and potentially `refinedResults`.
+*   **Task:**
+    Modify the `/api/search` route in `server/routes.ts` to call `generateResultsSummary` and include its output in the API response.
+*   **Guidelines for Modifying `/api/search` in `server/routes.ts`:**
+    1.  After you have the `finalResults` (which could be `initialResults` or `refinedResults` depending on your previous logic):
+        *   If `finalResults` is not empty, call:
+            `const textualSummary = await generateResultsSummary(query, finalResults);`
+        *   If `finalResults` is empty, `textualSummary` can be a default message or an empty string.
+    2.  **API Response Update:**
+        *   Add a new field to the JSON response sent to the client, e.g., `narrativeSummary: string`.
+            ```json
+            // Existing response structure
+            {
+              "query": "...",
+              "entities": { /* NLQSearchPlan */ },
+              "results": [ /* SalesforceField[] */ ],
+              "resultCount": 0,
+              "summary": "Found 0 fields...", // This is the existing short summary
+              "processingTimeMs": 0,
+              // New field:
+              "narrativeSummary": "The AI-generated explanation will go here." 
+            }
+            ```
+    3.  **Logging (Optional):** You might want to log the `narrativeSummary` along with other query details in `storage.logQuery` if it's useful for analytics or debugging, but be mindful of storage space for potentially longer text.
+*   **Constraints:**
+    *   The API should gracefully handle cases where `generateResultsSummary` might fail or return an empty/default summary.
+    *   Ensure the new `narrativeSummary` field is added to the response.
+
+---
+
+**Prompt 3: Display the Narrative Summary on the Frontend**
+
+This prompt focuses on `client/src/pages/home.tsx`.
+
+*   **Context:**
+    *   The `/api/search` endpoint now returns an additional field `narrativeSummary: string` in its JSON response.
+    *   The frontend `client/src/pages/home.tsx` currently displays tabular search results.
+*   **Task:**
+    Modify `client/src/pages/home.tsx` to:
+    1.  Update its state to store the `narrativeSummary`.
+    2.  Update the `handleSearchResults` function (or wherever the API response is processed) to extract and set this `narrativeSummary`.
+    3.  Render the `narrativeSummary` text in a suitable place on the page when results are shown. This should be *in addition to* the existing `SearchResults` table.
+*   **Guidelines for Frontend Display:**
+    1.  **State:** Add a new state variable in `Home` component:
+        `const [narrativeSummary, setNarrativeSummary] = useState<string>("");`
+    2.  **API Handling:** In `handleSearchResults` (inside `QueryInput.tsx` or `Home.tsx` where the API call is made and processed):
+        *   When parsing the API response (`data`), get `data.narrativeSummary`.
+        *   Update the state: `setNarrativeSummary(data.narrativeSummary || "");`
+        *   Ensure `narrativeSummary` is reset when a new search starts or if there's an error.
+    3.  **Rendering:**
+        *   In `Home.tsx`, when `showResults` is true (i.e., there are tabular results to display), also render the `narrativeSummary`.
+        *   A good placement might be directly above the `SearchResults` component, or in a dedicated "AI Insights" box.
+        *   **Example JSX Structure:**
+            ```tsx
+            // In Home.tsx's return, within the section where results are shown:
+            {showResults && narrativeSummary && (
+              <section className="mb-6"> {/* Or some other appropriate margin */}
+                <Card> {/* Using shadcn/ui Card for consistent styling */}
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center">
+                      <Lightbulb className="h-5 w-5 mr-2 text-amber-500" /> {/* Optional icon */}
+                      AI Summary
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-slate-700 leading-relaxed">{narrativeSummary}</p>
+                  </CardContent>
+                </Card>
+              </section>
+            )}
+
+            {/* Existing SearchResults component */}
+            {showResults && (
+              <SearchResults 
+                results={searchResults}
+                summary={resultSummary} // This is the short "Found X fields" summary
+                onFieldSelect={setSelectedField}
+              />
+            )}
+            ```
+        *   Style the `narrativeSummary` display area for readability (e.g., using `Card` component from `shadcn/ui` as shown, or simple paragraphs with appropriate styling).
+*   **Constraints:**
+    *   The narrative summary should only be displayed if it's not empty and there are results.
+    *   It should be clearly distinct from the tabular results but thematically connected.
+

@@ -344,3 +344,94 @@ export async function refineSearchResultsWithLLM(
     return initialResults;
   }
 }
+
+export async function generateResultsSummary(
+  originalQuery: string,
+  finalResults: SalesforceField[],
+  maxFieldsToConsiderForSummary: number = 5
+): Promise<string> {
+  try {
+    // Return default message for empty results
+    if (finalResults.length === 0) {
+      return "No specific fields found to summarize for this query.";
+    }
+
+    // Select subset of results for detailed consideration
+    const fieldsToAnalyze = finalResults.slice(0, maxFieldsToConsiderForSummary);
+    
+    // Prepare field summaries for LLM analysis
+    const fieldSummaries = fieldsToAnalyze.map(field => {
+      const parts = [
+        `Field: ${field.fieldLabel} (${field.fieldApiName}) on ${field.objectLabel}`,
+        `Type: ${field.dataType}`
+      ];
+      
+      if (field.description) {
+        const desc = field.description.length > 150 
+          ? field.description.substring(0, 150) + "..."
+          : field.description;
+        parts.push(`Description: ${desc}`);
+      }
+      
+      if (field.helpText) {
+        const help = field.helpText.length > 100
+          ? field.helpText.substring(0, 100) + "..."
+          : field.helpText;
+        parts.push(`Help: ${help}`);
+      }
+      
+      if (field.formula) {
+        const formula = field.formula.length > 200
+          ? field.formula.substring(0, 200) + "..."
+          : field.formula;
+        parts.push(`Formula: ${formula}`);
+      }
+      
+      return parts.join(", ");
+    });
+
+    const prompt = `
+You are an expert Salesforce data analyst. Your task is to provide a concise and helpful summary explaining how the provided Salesforce fields answer the user's original query. Focus on clarity and actionable insights.
+
+Given the user's query: "${originalQuery}"
+And the most relevant fields found:
+${fieldSummaries.map((summary, i) => `${i + 1}. ${summary}`).join('\n')}
+
+Please generate a natural language summary (2-4 sentences) that directly addresses the user's query using information from these fields.
+
+Guidelines:
+- If the query asks "how to calculate" something: Explain the logic, mention formulas if present, and identify key fields involved
+- If the query asks "what" or "which" fields: Briefly state the purpose of key fields and mention the primary Salesforce objects
+- Be concise and directly answer the user's question
+- Avoid jargon where possible
+- If the fields don't fully answer the query, acknowledge that while summarizing what was found
+- Do not just list fields; synthesize information into a coherent explanation
+- Base your response only on the provided field data
+
+Return only the summary text, no additional formatting.`;
+
+    // Call OpenAI for summary generation
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o", // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
+      messages: [
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      temperature: 0.3,
+      max_tokens: 300
+    });
+
+    const content = response.choices[0].message.content;
+    if (!content) {
+      return "Unable to generate summary at this time.";
+    }
+
+    return content.trim();
+
+  } catch (error) {
+    console.error("Error generating results summary:", error);
+    return "Unable to generate summary at this time.";
+  }
+}

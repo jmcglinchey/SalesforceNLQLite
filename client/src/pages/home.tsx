@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Search, Database } from "lucide-react";
+import { Search, Database, Lightbulb } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import QueryInput from "@/components/query-input";
 import SearchResults from "@/components/search-results";
 import FieldDetailsModal from "@/components/field-details-modal";
@@ -16,6 +17,7 @@ export default function Home() {
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [resultSummary, setResultSummary] = useState<string>("");
+  const [narrativeSummary, setNarrativeSummary] = useState<string>("");
 
   // Check if database has data
   const { data: uploadStatus, refetch: refetchStatus } = useQuery({
@@ -26,9 +28,10 @@ export default function Home() {
     }
   });
 
-  const handleSearchResults = (results: SearchResult[], summary: string) => {
+  const handleSearchResults = (results: SearchResult[], summary: string, narrativeSummary?: string) => {
     setSearchResults(results);
     setResultSummary(summary);
+    setNarrativeSummary(narrativeSummary || "");
     setHasSearched(true);
     setIsSearching(false);
   };

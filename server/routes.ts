@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { extractEntitiesFromQuery, generateSearchPlan, buildSearchSummary, refineSearchResultsWithLLM } from "./nlq";
+import { extractEntitiesFromQuery, generateSearchPlan, buildSearchSummary, refineSearchResultsWithLLM, generateResultsSummary } from "./nlq";
 import { searchSalesforceFieldsInDB, testDatabaseConnection, getSalesforceFieldCount } from "./database-search";
 import { queryRequestSchema, insertSalesforceFieldSchema } from "@shared/schema";
 import { z } from "zod";
@@ -115,6 +115,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       await storage.logQuery(query, legacyEntities, refinedResults.length, processingTime, true, logMessage);
       
+      // Generate narrative summary of results
+      const narrativeSummary = refinedResults.length > 0 
+        ? await generateResultsSummary(query, refinedResults)
+        : "No specific fields found to summarize for this query.";
+      
       // Build enhanced search summary using the plan and final results
       const summary = buildSearchSummary(searchPlan, refinedResults.length);
       
@@ -124,6 +129,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         results: refinedResults,
         resultCount: refinedResults.length,
         summary,
+        narrativeSummary,
         processingTimeMs: processingTime,
         refinementDetails
       });
