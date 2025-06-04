@@ -1,0 +1,59 @@
+"The CSV upload for Salesforce Objects (`/api/upload-objects-csv` endpoint in `server/routes.ts`) is not processing the provided `ddexport_20250604T185425_Object_atlantis.csv` file correctly. It seems to result in zero objects being processed, likely due to a BOM (Byte Order Mark) at the beginning of the CSV file affecting the first column header.
+
+**Task:**
+
+Modify the `/api/upload-objects-csv` endpoint in `server/routes.ts` to correctly handle and remove the BOM from the uploaded CSV file buffer before parsing it. This will ensure the column headers are read accurately.
+
+**Specific Instructions for `server/routes.ts` (in `/api/upload-objects-csv`):**
+
+1.  **Adopt BOM Removal Logic:** Replicate the BOM removal logic already present in the `/api/upload-csv` (for fields) endpoint.
+    *   Instead of:
+        ```typescript
+        const csvData = req.file.buffer.toString('utf-8');
+        const results: any[] = [];
+
+        // Parse CSV data
+        await new Promise((resolve, reject) => {
+          const stream = Readable.from([csvData]); // This is where the issue likely is
+          stream
+            .pipe(csv())
+            // ...
+        });
+        ```
+    *   Implement it like this:
+        ```typescript
+        const results: any[] = [];
+        // Remove BOM if present
+        let buffer = req.file.buffer;
+        if (buffer.length >= 3 && buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF) {
+          buffer = buffer.slice(3);
+        }
+        const stream = Readable.from(buffer); // Use the potentially sliced buffer
+
+        // Parse CSV data
+        await new Promise<void>((resolve, reject) => { // Explicitly type Promise for clarity
+          stream
+            .pipe(csv()) // No changes to csv-parser options needed if BOM is stripped
+            .on('data', (row) => {
+              results.push(row);
+            })
+            .on('end', () => {
+              resolve();
+            })
+            .on('error', (error) => { // Ensure error is properly rejected
+              reject(error);
+            });
+        });
+        ```
+
+2.  **Verify Column Mapping:** The current column mapping within the `transformedObjects.map(...)` function seems correct for the provided CSV (`row.Name` to `objectLabel`, `row.ApiName` to `objectApiName`, etc.). No changes should be needed here if the BOM issue is resolved.
+    ```typescript
+        // This part should remain largely the same:
+        const transformedObjects = results.map((row) => {
+          const objectLabel = row.Name || ''; // Will now correctly get 'Name'
+          const objectApiName = row.ApiName || ''; // Will now correctly get 'ApiName'
+          // ... rest of the mappings
+        }).filter(obj => obj.objectLabel && obj.objectApiName);
+    ```
+
+**No other changes are expected in other files for this specific fix.** The Zod schemas and database insertion logic should work correctly once the CSV data is parsed with accurate headers.

@@ -371,19 +371,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No file uploaded" });
       }
 
-      const csvData = req.file.buffer.toString('utf-8');
       const results: any[] = [];
+      // Remove BOM if present
+      let buffer = req.file.buffer;
+      if (buffer.length >= 3 && buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF) {
+        buffer = buffer.slice(3);
+      }
+      const stream = Readable.from(buffer);
 
       // Parse CSV data
-      await new Promise((resolve, reject) => {
-        const stream = Readable.from([csvData]);
+      await new Promise<void>((resolve, reject) => {
         stream
           .pipe(csv())
           .on('data', (row) => {
             results.push(row);
           })
-          .on('end', resolve)
-          .on('error', reject);
+          .on('end', () => {
+            resolve();
+          })
+          .on('error', (error) => {
+            reject(error);
+          });
       });
 
       // Transform and validate the data based on actual CSV columns
