@@ -65,10 +65,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let refinementApplied = false;
       let refinementDetails = null;
       
-      console.log(`[DEBUG] Initial results count: ${initialResults.length}, checking refinement threshold...`);
-      
       if (initialResults.length > 5) {
-        console.log(`[DEBUG] Applying LLM refinement for ${initialResults.length} results...`);
         try {
           const refinementStartTime = Date.now();
           refinedResults = await refineSearchResultsWithLLM(query, searchPlan, initialResults);

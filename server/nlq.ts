@@ -298,20 +298,16 @@ export async function refineSearchResultsWithLLM(
   maxFieldsToReturn: number = 5
 ): Promise<SalesforceField[]> {
   try {
-    console.log(`[DEBUG refineSearchResultsWithLLM] Starting refinement for ${initialResults.length} results`);
-    
     // Return immediately if no results to refine
     if (initialResults.length === 0) {
       return initialResults;
     }
 
-    // For now, implement a simple scoring-based refinement to avoid OpenAI timeouts
-    // Priority: fields with descriptions > fields without descriptions
-    // Deprioritize: fields with "OLD", "Legacy", "Archive" in names
+    // Implement scoring-based refinement for intelligent result ranking
     const scoredResults = initialResults.map(field => {
       let score = 0;
       
-      // Boost score for having description
+      // Boost score for having description and help text
       if (field.description && field.description.length > 50) score += 3;
       if (field.helpText && field.helpText.length > 20) score += 2;
       
@@ -328,6 +324,10 @@ export async function refineSearchResultsWithLLM(
         score += 2;
       }
       
+      // Boost for active usage indicators
+      if (field.fieldUsageId === 'Active') score += 1;
+      if (field.populationPercentage && field.populationPercentage > 50) score += 1;
+      
       return { field, score };
     });
     
@@ -337,7 +337,6 @@ export async function refineSearchResultsWithLLM(
       .slice(0, maxFieldsToReturn)
       .map(item => item.field);
 
-    console.log(`[DEBUG refineSearchResultsWithLLM] Refined ${initialResults.length} to ${refinedResults.length} results`);
     return refinedResults;
 
   } catch (error) {
