@@ -31,7 +31,10 @@ export async function searchSalesforceFieldsInDB(entities: NLQEntity): Promise<S
           ilike(salesforceFields.fieldLabel, `%${keyword}%`),
           ilike(salesforceFields.description, `%${keyword}%`),
           ilike(salesforceFields.helpText, `%${keyword}%`),
-          sql`EXISTS(SELECT 1 FROM jsonb_array_elements_text(${salesforceFields.tags}) AS tag WHERE LOWER(tag) LIKE LOWER(${`%${keyword}%`}))`
+          ilike(salesforceFields.complianceCategory, `%${keyword}%`),
+          ilike(salesforceFields.tagIds, `%${keyword}%`),
+          ilike(salesforceFields.owners, `%${keyword}%`),
+          ilike(salesforceFields.stakeholders, `%${keyword}%`)
         )
       );
       

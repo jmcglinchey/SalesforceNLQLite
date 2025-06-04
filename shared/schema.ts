@@ -2,21 +2,58 @@ import { pgTable, text, serial, integer, boolean, timestamp, jsonb } from "drizz
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// Salesforce Field metadata table
+// Salesforce Field metadata table with complete schema
 export const salesforceFields = pgTable("salesforce_fields", {
   id: serial("id").primaryKey(),
-  fieldLabel: text("field_label").notNull(),
-  fieldApiName: text("field_api_name").notNull(),
-  objectLabel: text("object_label").notNull(),
+  // Core field information
+  fieldLabel: text("field_label").notNull(), // Label
+  fieldApiName: text("field_api_name").notNull(), // Name
+  objectLabel: text("object_label").notNull(), // ParentDisplayName
   objectApiName: text("object_api_name").notNull(),
-  dataType: text("data_type").notNull(),
-  description: text("description"),
-  helpText: text("help_text"),
-  formula: text("formula"),
-  picklistValues: jsonb("picklist_values"),
-  tags: jsonb("tags"), // For PII, Address, Contact Info, Financial, etc.
-  isRequired: boolean("is_required").default(false),
-  isCustom: boolean("is_custom").default(false),
+  dataType: text("data_type").notNull(), // Type
+  
+  // Field metadata
+  picklistValues: text("picklist_values"), // PicklistValues
+  ingestedBy: text("ingested_by"), // IngestedBy
+  populatedBy: text("populated_by"), // PopulatedBy
+  notes: text("notes"), // Notes
+  definition: text("definition"), // Definition
+  description: text("description"), // Description
+  helpText: text("help_text"), // HelpText
+  formula: text("formula"), // Formula
+  
+  // Compliance and sensitivity
+  complianceCategory: text("compliance_category"), // ComplianceCategory
+  fieldUsageId: text("field_usage_id"), // FieldUsageId
+  dataSensitivityLevelId: text("data_sensitivity_level_id"), // DataSensitivityLevelId
+  
+  // Ownership and stakeholders
+  owners: text("owners"), // Owners
+  stakeholders: text("stakeholders"), // Stakeholders
+  isFollowing: boolean("is_following").default(false), // IsFollowing
+  tagIds: text("tag_ids"), // TagIds
+  
+  // Field properties
+  isCustom: boolean("is_custom").default(false), // Custom
+  isRequired: boolean("is_required").default(false), // Required
+  isUnique: boolean("is_unique").default(false), // Unique
+  defaultValue: text("default_value"), // DefaultValue
+  scale: integer("scale"), // Scale
+  
+  // Audit fields
+  createdBy: text("created_by"), // CreatedBy
+  salesforceCreatedDate: text("salesforce_created_date"), // CreatedDate
+  lastModifiedBy: text("last_modified_by"), // LastModifiedBy
+  salesforceLastModifiedDate: text("salesforce_last_modified_date"), // LastModifiedDate
+  managedPackage: text("managed_package"), // ManagedPackage
+  
+  // Usage statistics
+  populationPercentage: integer("population_percentage"), // PopulationPercentage
+  referenceCount: integer("reference_count"), // ReferenceCount
+  populatedAndTotalRecords: text("populated_and_total_records"), // PopulatedAndTotalRecords
+  sourceUrl: text("source_url"), // SourceUrl
+  
+  // System fields
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -70,10 +107,16 @@ export const searchResultSchema = z.object({
   description: z.string().nullable(),
   helpText: z.string().nullable(),
   formula: z.string().nullable(),
-  picklistValues: z.array(z.string()).nullable(),
-  tags: z.array(z.string()).nullable(),
+  picklistValues: z.string().nullable(),
+  complianceCategory: z.string().nullable(),
+  tagIds: z.string().nullable(),
+  owners: z.string().nullable(),
+  stakeholders: z.string().nullable(),
   isRequired: z.boolean(),
   isCustom: z.boolean(),
+  isUnique: z.boolean(),
+  populationPercentage: z.number().nullable(),
+  referenceCount: z.number().nullable(),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({

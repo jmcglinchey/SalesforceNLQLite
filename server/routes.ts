@@ -146,42 +146,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "CSV file is empty" });
       }
 
-      // Transform CSV data to match our schema
+      // Transform CSV data to match our expanded schema
       const salesforceFields = csvData.map((row) => {
-        // Handle your specific CSV column names
-        const fieldLabel = row.Label || row.fieldLabel || '';
-        const fieldApiName = row.Name || row.fieldApiName || '';
-        const objectLabel = row.ParentDisplayName || row.objectLabel || '';
-        const objectApiName = row.ParentDisplayName || row.objectApiName || ''; // Using same as label for now
-        const dataType = row.Type || row.dataType || 'text';
-        const description = row.Description || row.description || '';
-        const helpText = row.HelpText || row.helpText || '';
-        const formula = row.Formula || row.formula || '';
-        const isRequired = row.Required === 'TRUE' || row.Required === 'true' || row.isRequired === 'true';
-        const isCustom = row.Custom === 'TRUE' || row.Custom === 'true' || row.isCustom === 'true';
-
-        // Parse picklist values if they exist
-        let picklistValues = null;
-        const picklistString = row.PicklistValues || row.picklistValues || '';
-        if (picklistString && picklistString.trim()) {
-          // Split by comma and clean up
-          picklistValues = picklistString.split(',').map((v: string) => v.trim()).filter((v: string) => v);
-        }
-
-        // Parse tags if they exist - using ComplianceCategory and other relevant fields
-        let tags = [];
-        if (row.ComplianceCategory && row.ComplianceCategory.trim()) {
-          tags.push(row.ComplianceCategory.trim());
-        }
-        if (row.TagIds && row.TagIds.trim()) {
-          const tagIds = row.TagIds.split(',').map((v: string) => v.trim()).filter((v: string) => v);
-          tags = tags.concat(tagIds);
-        }
-        // Add data type as a tag for easier searching
-        if (dataType) {
-          tags.push(dataType);
-        }
-        const finalTags = tags.length > 0 ? tags : null;
+        // Core field information
+        const fieldLabel = row.Label || '';
+        const fieldApiName = row.Name || '';
+        const objectLabel = row.ParentDisplayName || '';
+        const objectApiName = row.ParentDisplayName || ''; // Using same as label for now
+        const dataType = row.Type || 'text';
+        
+        // Field metadata
+        const picklistValues = row.PicklistValues || null;
+        const ingestedBy = row.IngestedBy || null;
+        const populatedBy = row.PopulatedBy || null;
+        const notes = row.Notes || null;
+        const definition = row.Definition || null;
+        const description = row.Description || null;
+        const helpText = row.HelpText || null;
+        const formula = row.Formula || null;
+        
+        // Compliance and sensitivity
+        const complianceCategory = row.ComplianceCategory || null;
+        const fieldUsageId = row.FieldUsageId || null;
+        const dataSensitivityLevelId = row.DataSensitivityLevelId || null;
+        
+        // Ownership and stakeholders
+        const owners = row.Owners || null;
+        const stakeholders = row.Stakeholders || null;
+        const isFollowing = row.IsFollowing === 'TRUE' || row.IsFollowing === 'true';
+        const tagIds = row.TagIds || null;
+        
+        // Field properties
+        const isCustom = row.Custom === 'TRUE' || row.Custom === 'true';
+        const isRequired = row.Required === 'TRUE' || row.Required === 'true';
+        const isUnique = row.Unique === 'TRUE' || row.Unique === 'true';
+        const defaultValue = row.DefaultValue || null;
+        const scale = row.Scale ? parseInt(row.Scale) : null;
+        
+        // Audit fields
+        const createdBy = row.CreatedBy || null;
+        const salesforceCreatedDate = row.CreatedDate || null;
+        const lastModifiedBy = row.LastModifiedBy || null;
+        const salesforceLastModifiedDate = row.LastModifiedDate || null;
+        const managedPackage = row.ManagedPackage || null;
+        
+        // Usage statistics
+        const populationPercentage = row.PopulationPercentage ? parseInt(row.PopulationPercentage) : null;
+        const referenceCount = row.ReferenceCount ? parseInt(row.ReferenceCount) : null;
+        const populatedAndTotalRecords = row.PopulatedAndTotalRecords || null;
+        const sourceUrl = row.SourceUrl || null;
 
         return {
           fieldLabel,
@@ -189,13 +202,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
           objectLabel,
           objectApiName,
           dataType,
-          description: description || null,
-          helpText: helpText || null,
-          formula: formula || null,
           picklistValues,
-          tags: finalTags,
-          isRequired,
+          ingestedBy,
+          populatedBy,
+          notes,
+          definition,
+          description,
+          helpText,
+          formula,
+          complianceCategory,
+          fieldUsageId,
+          dataSensitivityLevelId,
+          owners,
+          stakeholders,
+          isFollowing,
+          tagIds,
           isCustom,
+          isRequired,
+          isUnique,
+          defaultValue,
+          scale,
+          createdBy,
+          salesforceCreatedDate,
+          lastModifiedBy,
+          salesforceLastModifiedDate,
+          managedPackage,
+          populationPercentage,
+          referenceCount,
+          populatedAndTotalRecords,
+          sourceUrl,
         };
       }).filter(field => field.fieldLabel && field.fieldApiName); // Only include valid fields
 
