@@ -113,16 +113,68 @@ export default function FieldDetailsModal({ field, isOpen, onClose }: FieldDetai
             </div>
           )}
 
+          {/* Compliance Category */}
+          {field.complianceCategory && (
+            <div>
+              <h4 className="text-sm font-medium text-slate-900 mb-2">Compliance Category</h4>
+              <Badge variant="outline" className="text-xs">
+                {field.complianceCategory}
+              </Badge>
+            </div>
+          )}
+
           {/* Tags */}
-          {field.tags && field.tags.length > 0 && (
+          {field.tagIds && (
             <div>
               <h4 className="text-sm font-medium text-slate-900 mb-2">Tags</h4>
               <div className="flex flex-wrap gap-2">
-                {field.tags.map((tag, index) => (
+                {field.tagIds.split(',').map((tag, index) => (
                   <Badge key={index} variant="secondary" className="text-xs">
-                    {tag}
+                    {tag.trim()}
                   </Badge>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Ownership */}
+          {(field.owners || field.stakeholders) && (
+            <div>
+              <h4 className="text-sm font-medium text-slate-900 mb-2">Ownership & Stakeholders</h4>
+              <div className="bg-slate-50 rounded-lg p-4 space-y-2">
+                {field.owners && (
+                  <div className="text-sm">
+                    <span className="font-medium text-slate-700">Owners:</span>
+                    <span className="ml-2 text-slate-600">{field.owners}</span>
+                  </div>
+                )}
+                {field.stakeholders && (
+                  <div className="text-sm">
+                    <span className="font-medium text-slate-700">Stakeholders:</span>
+                    <span className="ml-2 text-slate-600">{field.stakeholders}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Usage Statistics */}
+          {(field.populationPercentage !== null || field.referenceCount !== null) && (
+            <div>
+              <h4 className="text-sm font-medium text-slate-900 mb-2">Usage Statistics</h4>
+              <div className="bg-slate-50 rounded-lg p-4 space-y-2">
+                {field.populationPercentage !== null && (
+                  <div className="text-sm">
+                    <span className="font-medium text-slate-700">Population:</span>
+                    <span className="ml-2 text-slate-600">{field.populationPercentage}%</span>
+                  </div>
+                )}
+                {field.referenceCount !== null && (
+                  <div className="text-sm">
+                    <span className="font-medium text-slate-700">References:</span>
+                    <span className="ml-2 text-slate-600">{field.referenceCount}</span>
+                  </div>
+                )}
               </div>
             </div>
           )}
