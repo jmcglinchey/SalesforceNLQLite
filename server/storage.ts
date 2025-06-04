@@ -11,6 +11,9 @@ export interface IStorage {
   getRecentQueries(limit?: number): Promise<QueryLog[]>;
   insertSalesforceFields(fields: InsertSalesforceField[]): Promise<void>;
   clearSalesforceFields(): Promise<void>;
+  insertSalesforceObjects(objects: InsertSalesforceObject[]): Promise<void>;
+  clearSalesforceObjects(): Promise<void>;
+  getSalesforceObjectCount(): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -78,6 +81,27 @@ export class DatabaseStorage implements IStorage {
 
   async clearSalesforceFields(): Promise<void> {
     await db.delete(salesforceFields);
+  }
+
+  async insertSalesforceObjects(objects: InsertSalesforceObject[]): Promise<void> {
+    if (objects.length === 0) return;
+
+    const batchSize = 500;
+    for (let i = 0; i < objects.length; i += batchSize) {
+      const batch = objects.slice(i, i + batchSize);
+      await db.insert(salesforceObjects).values(batch);
+    }
+  }
+
+  async clearSalesforceObjects(): Promise<void> {
+    await db.delete(salesforceObjects);
+  }
+
+  async getSalesforceObjectCount(): Promise<number> {
+    const result = await db
+      .select({ count: salesforceObjects.id })
+      .from(salesforceObjects);
+    return result.length;
   }
 }
 

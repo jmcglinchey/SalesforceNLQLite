@@ -1,6 +1,6 @@
 import { db } from "./db";
-import { salesforceFields } from "@shared/schema";
-import { NLQEntity, SalesforceField, NLQSearchPlan, SearchCondition, FilterGroup } from "@shared/schema";
+import { salesforceFields, salesforceObjects } from "@shared/schema";
+import { NLQEntity, SalesforceField, SalesforceObject, NLQSearchPlan, SearchCondition, FilterGroup } from "@shared/schema";
 import { ilike, or, and, sql } from "drizzle-orm";
 
 
@@ -24,8 +24,38 @@ function getFieldByName(fieldName: string) {
   return fieldMap[fieldName] || null;
 }
 
+function getObjectFieldByName(fieldName: string) {
+  const objectFieldMap: Record<string, any> = {
+    'objectLabel': salesforceObjects.objectLabel,
+    'objectApiName': salesforceObjects.objectApiName,
+    'description': salesforceObjects.description,
+    'pluralLabel': salesforceObjects.pluralLabel,
+    'tags': salesforceObjects.tags,
+    'sharingModel': salesforceObjects.sharingModel,
+    'keyPrefix': salesforceObjects.keyPrefix
+  };
+  
+  return objectFieldMap[fieldName] || null;
+}
+
 function processSearchCondition(condition: SearchCondition) {
   const field = getFieldByName(condition.field);
+  if (!field) return null;
+
+  switch (condition.operator) {
+    case "ilike":
+      return ilike(field, condition.value as string);
+    case "equals_ignore_case":
+      return sql`LOWER(${field}) = LOWER(${condition.value})`;
+    case "contains_in_array_field":
+      return ilike(field, `%${condition.value}%`);
+    default:
+      return null;
+  }
+}
+
+function processObjectSearchCondition(condition: SearchCondition) {
+  const field = getObjectFieldByName(condition.field);
   if (!field) return null;
 
   switch (condition.operator) {
@@ -102,6 +132,53 @@ export async function searchSalesforceFieldsInDB(plan: NLQSearchPlan): Promise<S
 
   } catch (error) {
     console.error('Database search error:', error);
+    return [];
+  }
+}
+
+export async function searchSalesforceObjectsInDB(plan: NLQSearchPlan): Promise<SalesforceObject[]> {
+  try {
+    let baseQuery = db.select().from(salesforceObjects);
+    let allWhereConditions: any[] = [];
+
+    // Add target object condition if specified
+    if (plan.targetObject) {
+      allWhereConditions.push(
+        or(
+          ilike(salesforceObjects.objectLabel, `%${plan.targetObject}%`),
+          ilike(salesforceObjects.objectApiName, `%${plan.targetObject}%`)
+        )
+      );
+    }
+
+    // Process filter groups for object search
+    plan.filterGroups.forEach((group: FilterGroup) => {
+      const groupConditions = group.conditions
+        .map(condition => processObjectSearchCondition(condition))
+        .filter(condition => condition !== null);
+
+      if (groupConditions.length > 0) {
+        if (group.logicalOperator === "OR") {
+          allWhereConditions.push(or(...groupConditions));
+        } else {
+          allWhereConditions.push(and(...groupConditions));
+        }
+      }
+    });
+
+    // Build final query
+    let finalQuery;
+    if (allWhereConditions.length > 0) {
+      finalQuery = baseQuery.where(and(...allWhereConditions)).limit(50);
+    } else {
+      finalQuery = baseQuery.limit(50);
+    }
+
+    const results = await finalQuery;
+    return results as SalesforceObject[];
+
+  } catch (error) {
+    console.error('Object database search error:', error);
     return [];
   }
 }

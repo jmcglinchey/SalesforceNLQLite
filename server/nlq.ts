@@ -72,6 +72,13 @@ CRITICAL: User Lookup / Ownership Inference Rules:
 2. For "my" queries (e.g., "my accounts"), assume "my" refers to an ownership context. Prioritize fields like "Account Owner" (which would be a Lookup(User)).
 3. If a specific field name like "Account Owner" is mentioned, prioritize that in 'filterGroups' alongside setting the 'dataTypeFilter' for 'Lookup(User)'.
 
+CRITICAL: Object Search Intent Rules:
+1. If the query explicitly asks about an object (e.g., "what is the Account object?", "tell me about Opportunities", "details for Case object"), set 'intent' to "find_objects".
+2. If the query asks for objects related to a concept (e.g., "what objects are used for sales?", "show me objects for customer support"), set 'intent' to "find_objects" and use the concept (e.g., "sales", "customer support") as keywords in 'filterGroups' targeting 'objectLabel', 'description', and 'tags' of the salesforceObjects table.
+3. For "find_objects" intent, 'dataTypeFilter' should typically be null.
+4. 'targetObject' in the plan can still be used to specify a particular object name if the query is "tell me about the Account object". In this case, 'filterGroups' might be minimal or focus on the 'objectLabel' or 'objectApiName' equaling this target.
+5. If the query is ambiguous between finding fields on an object vs. finding the object itself (e.g., "Account information"), prioritize "find_fields" intent by default unless specific object-describing language is used ("what is...", "tell me about the object...").
+
 Generate a structured search plan in this exact JSON format:
 
 {
