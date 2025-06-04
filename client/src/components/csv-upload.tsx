@@ -123,13 +123,13 @@ export default function CSVUpload({ onUploadComplete }: CSVUploadProps) {
   };
 
   return (
-    <Card className="w-full max-w-2xl mx-auto">
+    <Card className="border-green-200 bg-green-50/50 dark:bg-green-950/20 dark:border-green-800">
       <CardHeader>
-        <CardTitle className="flex items-center space-x-2">
+        <CardTitle className="flex items-center space-x-2 text-green-900 dark:text-green-100">
           <Upload className="h-5 w-5" />
-          <span>Upload Salesforce Data</span>
+          <span>Upload Salesforce Fields CSV</span>
         </CardTitle>
-        <CardDescription>
+        <CardDescription className="text-green-700 dark:text-green-300">
           Upload a CSV file containing your Salesforce field metadata to start querying
         </CardDescription>
       </CardHeader>
@@ -138,26 +138,30 @@ export default function CSVUpload({ onUploadComplete }: CSVUploadProps) {
           <div
             className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
               isDragging
-                ? 'border-primary bg-primary/5'
-                : 'border-slate-300 hover:border-slate-400'
+                ? 'border-green-400 bg-green-50 dark:bg-green-900/30'
+                : 'border-green-300 dark:border-green-600'
             }`}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
           >
-            <FileText className="h-12 w-12 text-slate-400 mx-auto mb-4" />
-            <p className="text-lg font-medium text-slate-900 mb-2">
-              Drop your CSV file here
-            </p>
-            <p className="text-sm text-slate-600 mb-4">
-              or click to browse and select a file
+            <div className="w-12 h-12 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center mx-auto mb-4">
+              <FileText className="h-6 w-6 text-green-600 dark:text-green-400" />
+            </div>
+            <h3 className="text-lg font-medium text-green-900 dark:text-green-100 mb-2">
+              Upload Fields Data
+            </h3>
+            <p className="text-sm text-green-700 dark:text-green-300 mb-4">
+              Drag and drop your Salesforce Fields CSV file here, or click to browse
             </p>
             <Button
               onClick={() => fileInputRef.current?.click()}
               disabled={isUploading}
-              className="mx-auto"
+              variant="outline"
+              className="border-green-300 text-green-700 hover:bg-green-50 dark:border-green-600 dark:text-green-300 dark:hover:bg-green-900/30"
             >
-              Choose File
+              <FileText className="h-4 w-4 mr-2" />
+              {isUploading ? 'Uploading...' : 'Choose File'}
             </Button>
             <input
               ref={fileInputRef}
@@ -168,6 +172,17 @@ export default function CSVUpload({ onUploadComplete }: CSVUploadProps) {
             />
           </div>
         )}
+
+        {/* Expected Format Info */}
+        <div className="mt-4 p-4 bg-green-50 dark:bg-green-950/30 rounded-lg border border-green-200 dark:border-green-800">
+          <h4 className="font-medium text-green-900 dark:text-green-100 mb-2">Expected CSV Format:</h4>
+          <p className="text-xs text-green-700 dark:text-green-300 font-mono">
+            Label, Name, ParentDisplayName, Type, Description, HelpText, Tags, Owners
+          </p>
+          <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+            Example: Account Name, Name, Account, Text, The name of the account, Enter account name, Core Field, Sales Team
+          </p>
+        </div>
 
         {isUploading && (
           <div className="space-y-3">

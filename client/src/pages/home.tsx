@@ -9,6 +9,7 @@ import ExampleQueries from "@/components/example-queries";
 import LoadingState from "@/components/loading-state";
 import EmptyState from "@/components/empty-state";
 import CSVUpload from "@/components/csv-upload";
+import ObjectCSVUpload from "@/components/object-csv-upload";
 import { SearchResult, SalesforceObject } from "@shared/schema";
 import { useQuery } from "@tanstack/react-query";
 
@@ -89,11 +90,14 @@ export default function Home() {
               </div>
               <h2 className="text-2xl font-semibold text-slate-900 mb-2">Get Started</h2>
               <p className="text-slate-600 max-w-2xl mx-auto">
-                Upload your Salesforce field metadata CSV file to start asking questions about your data in plain English
+                Upload your Salesforce metadata CSV files to start asking questions about your data in plain English
               </p>
             </div>
             
-            <CSVUpload onUploadComplete={handleUploadComplete} />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <CSVUpload onUploadComplete={handleUploadComplete} />
+              <ObjectCSVUpload onUploadComplete={handleUploadComplete} />
+            </div>
           </section>
         ) : (
           <>
