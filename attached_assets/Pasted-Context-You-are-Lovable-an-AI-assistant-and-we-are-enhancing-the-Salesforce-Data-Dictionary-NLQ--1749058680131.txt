@@ -1,0 +1,71 @@
+Context:
+You are Lovable, an AI assistant, and we are enhancing the "Salesforce Data Dictionary NLQ" application.
+The core NLQ logic is in server/nlq.ts, specifically the generateSearchPlan function, which calls an OpenAI model (GPT-4o) to produce an NLQSearchPlan (schema in KB: shared/schema.ts).
+The NLQSearchPlan has a targetObject: string | null | undefined field.
+Currently, targetObject is populated if the user explicitly names a Salesforce object.
+Requirement: We need to improve this. If a user uses a generic business term (e.g., "customer," "deal," "issue"), the LLM should infer the most likely Salesforce object(s) and populate targetObject accordingly.
+Task:
+Modify the OpenAI prompt within the generateSearchPlan function in server/nlq.ts.
+Guidelines for OpenAI Prompt Modification:
+Salesforce Object Awareness:
+Explicitly inform the LLM about common Salesforce standard objects it should be aware of for inference. Key examples: "Account", "Contact", "Lead", "Opportunity", "Case".
+You can state: "Your knowledge should include common Salesforce objects like Account (for companies/organizations), Contact (for individuals), Lead (for prospects), Opportunity (for deals/sales), and Case (for customer issues/tickets)."
+Inference Logic for targetObject:
+Instruct the LLM to infer the targetObject based on business terms if no specific object is mentioned by the user.
+Provide clear mapping examples:
+If the query mentions "customer," "client," or "company," infer targetObject: "Account". (If it could also be "Contact," instruct it to prioritize "Account" or the most common one for such terms, or we can later adjust to return an array if "Account OR Contact" is desired).
+If "person," "individual," or "people" and not clearly a "Lead", infer targetObject: "Contact".
+If "prospect" or "new inquiry," infer targetObject: "Lead".
+If "deal," "sale," or "revenue opportunity," infer targetObject: "Opportunity".
+If "issue," "ticket," "problem," or "support request," infer targetObject: "Case".
+Explicit User Input Precedence: If the user explicitly states an object (e.g., "fields on Opportunity object"), the LLM must use that explicit object for targetObject and not try to infer a different one.
+No Inference/Ambiguity: If no object is mentioned and no strong inference can be made from the keywords, targetObject should remain null.
+Update Few-Shot Examples in the OpenAI Prompt:
+Modify existing examples or add new ones to demonstrate this inference.
+New Example for LLM Prompt (Illustrating Inference):
+Query: "What are the main fields for our customers?"
+// Expected LLM Output (NLQSearchPlan):
+{
+  "intent": "find_fields",
+  "targetObject": "Account", // Inferred from "customers"
+  "filterGroups": [
+    {
+      "logicalOperator": "OR", // Assuming "main fields" translates to broad search
+      "conditions": [
+        // LLM might add general conditions if "main fields" is too vague, 
+        // or focus on widely used fields if it has that knowledge.
+        // For MVP, it might just be empty or a very broad keyword.
+        // This example focuses on object inference.
+         { "field": "fieldLabel", "operator": "ilike", "value": "%name%" },
+         { "field": "description", "operator": "ilike", "value": "%key info%" }
+      ]
+    }
+  ],
+  "dataTypeFilter": null,
+  "rawKeywords": ["main fields", "customers"]
+}
+Use code with caution.
+New Example for LLM Prompt (Explicit Object Overrides Inference):
+Query: "Show customer related fields on the Lead object"
+// Expected LLM Output (NLQSearchPlan):
+{
+  "intent": "find_fields",
+  "targetObject": "Lead", // Explicitly stated, overrides "customer" inference for object targeting
+  "filterGroups": [
+    {
+      "logicalOperator": "OR",
+      "conditions": [
+        { "field": "fieldLabel", "operator": "ilike", "value": "%customer%" },
+        { "field": "description", "operator": "ilike", "value": "%customer%" }
+      ]
+    }
+  ],
+  "dataTypeFilter": null,
+  "rawKeywords": ["customer related", "Lead object"]
+}
+Use code with caution.
+Clarity on targetObject Value: For now, continue to populate targetObject as a single string (the most relevant inferred object) or null. If a term is highly ambiguous between two primary objects (e.g., "customer" for Account vs. Contact), instruct the LLM to default to the more general or primary one (e.g., "Account"). We can refine this to targetObjects: string[] in a future iteration if needed.
+Constraints:
+Do not change the nlqSearchPlanSchema in shared/schema.ts in this step. We are only improving the logic for populating the existing targetObject field.
+The core structure of how filterGroups and dataTypeFilter are generated should remain consistent with the previous prompt, unless the object inference naturally leads to better keyword-to-field mapping.
+The focus is strictly on improving the targetObject inference.

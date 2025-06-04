@@ -25,6 +25,17 @@ Available queryable fields in the salesforceFields table:
 - picklistValues: Available picklist options
 - ingestedBy: Systems that populate this field
 
+Your knowledge should include common Salesforce objects like Account (for companies/organizations), Contact (for individuals), Lead (for prospects), Opportunity (for deals/sales), and Case (for customer issues/tickets).
+
+Object Inference Rules for targetObject:
+- If query mentions "customer," "client," or "company," infer targetObject: "Account"
+- If "person," "individual," or "people" (and not clearly a Lead), infer targetObject: "Contact"
+- If "prospect" or "new inquiry," infer targetObject: "Lead"
+- If "deal," "sale," or "revenue opportunity," infer targetObject: "Opportunity"
+- If "issue," "ticket," "problem," or "support request," infer targetObject: "Case"
+- If user explicitly states an object name, use that exact object (overrides inference)
+- If no object mentioned and no strong inference possible, set targetObject: null
+
 Generate a structured search plan in this exact JSON format:
 
 {
@@ -69,6 +80,42 @@ Query: "Show me deal size fields on Opportunity"
   ],
   "dataTypeFilter": { "field": "dataType", "operator": "ilike", "value": "%Currency%" },
   "rawKeywords": ["deal size", "Opportunity"]
+}
+
+Query: "What are the main fields for our customers?"
+{
+  "intent": "find_fields",
+  "targetObject": "Account",
+  "filterGroups": [
+    {
+      "logicalOperator": "OR",
+      "conditions": [
+        { "field": "fieldLabel", "operator": "ilike", "value": "%name%" },
+        { "field": "fieldLabel", "operator": "ilike", "value": "%main%" },
+        { "field": "description", "operator": "ilike", "value": "%key%" },
+        { "field": "description", "operator": "ilike", "value": "%primary%" }
+      ]
+    }
+  ],
+  "dataTypeFilter": null,
+  "rawKeywords": ["main fields", "customers"]
+}
+
+Query: "Show customer related fields on the Lead object"
+{
+  "intent": "find_fields",
+  "targetObject": "Lead",
+  "filterGroups": [
+    {
+      "logicalOperator": "OR",
+      "conditions": [
+        { "field": "fieldLabel", "operator": "ilike", "value": "%customer%" },
+        { "field": "description", "operator": "ilike", "value": "%customer%" }
+      ]
+    }
+  ],
+  "dataTypeFilter": null,
+  "rawKeywords": ["customer related", "Lead object"]
 }
 
 Query: "PII fields on Contact"
