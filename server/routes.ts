@@ -1,8 +1,8 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { extractEntitiesFromQuery, buildSearchSummary } from "./nlq";
-import { searchSalesforceFieldsInDB, testDatabaseConnection, getSalesforceFieldCount } from "./database-search";
+import { extractEntitiesFromQuery, generateSearchPlan, buildSearchSummary } from "./nlq";
+import { searchSalesforceFieldsInDB, searchSalesforceFieldsWithPlan, testDatabaseConnection, getSalesforceFieldCount } from "./database-search";
 import { queryRequestSchema, insertSalesforceFieldSchema } from "@shared/schema";
 import { z } from "zod";
 import multer from "multer";
@@ -46,7 +46,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Main NLQ search endpoint
+  // Enhanced NLQ search endpoint with structured planning
   app.post("/api/search", async (req, res) => {
     const startTime = Date.now();
     
@@ -54,24 +54,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Validate request body
       const { query } = queryRequestSchema.parse(req.body);
       
-      // Extract entities using OpenAI
-      const entities = await extractEntitiesFromQuery(query);
+      // Generate structured search plan using OpenAI
+      const searchPlan = await generateSearchPlan(query);
       
-      // Search database for matching fields
-      const results = await searchSalesforceFieldsInDB(entities);
+      // Search database using structured plan
+      const results = await searchSalesforceFieldsWithPlan(searchPlan);
       
       // Calculate processing time
       const processingTime = Date.now() - startTime;
       
-      // Log the query for analytics
-      await storage.logQuery(query, entities, results.length, processingTime, true);
+      // Convert search plan to legacy entity format for logging
+      const legacyEntities = {
+        object: searchPlan.targetObject,
+        keywords: searchPlan.rawKeywords,
+        dataType: searchPlan.dataTypeFilter?.value as string || null,
+        intent: searchPlan.intent
+      };
       
-      // Build search summary
-      const summary = buildSearchSummary(entities, results.length);
+      // Log the query for analytics
+      await storage.logQuery(query, legacyEntities, results.length, processingTime, true);
+      
+      // Build enhanced search summary
+      const summary = `Found ${results.length} fields using structured search plan${searchPlan.targetObject ? ` for ${searchPlan.targetObject}` : ''}`;
       
       res.json({
         query,
-        entities,
+        searchPlan,
         results,
         resultCount: results.length,
         summary,
