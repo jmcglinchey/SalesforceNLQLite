@@ -69,6 +69,7 @@ export const salesforceObjects = pgTable("salesforce_objects", {
   isCustom: boolean("is_custom").default(false),
   tags: text("tags"),
   sharingModel: text("sharing_model"),
+  matchConfidence: text("match_confidence", { enum: ["High", "Medium", "Low"] }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

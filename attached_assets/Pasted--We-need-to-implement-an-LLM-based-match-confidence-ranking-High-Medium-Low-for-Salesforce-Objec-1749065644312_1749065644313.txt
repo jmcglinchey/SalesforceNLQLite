@@ -1,0 +1,169 @@
+"We need to implement an LLM-based match confidence ranking (High, Medium, Low) for Salesforce Object search results, similar to what we currently have for field search results. The ranked objects should then be displayed in the UI, sorted by this confidence score.
+
+Please implement the following changes:
+
+**Phase 1: Backend Modifications - Scoring Logic & Data Structure for Objects**
+
+1.  **Update Shared Schema (`shared/schema.ts`):**
+    *   **Task:** Add a `matchConfidence` field to the `SalesforceObject` type definition.
+    *   **Details:**
+        *   Modify the `salesforceObjects` Drizzle table definition and its corresponding Zod schema (`SalesforceObject` type).
+        *   The field should be `matchConfidence?: "High" | "Medium" | "Low" | null;` (optional, can be one of the three strings or null).
+        *   This implies the `SalesforceObject` type exported from this file will now have this optional property.
+
+2.  **Modify NLQ Service (`server/nlq.ts`):**
+    *   **Task A: Create/Adapt Confidence Scoring for Objects:**
+        *   Create a new function `getObjectMatchConfidence` or adapt the existing `getMatchConfidence` to work with `SalesforceObject` instances.
+        *   **LLM Prompt for Object Confidence Scoring (per object):**
+            ```
+            Context: You are an AI assistant evaluating the relevance of a Salesforce Object to a user's query and the derived search plan.
+            Original User Query: "{originalQuery}"
+            Derived Search Plan (intent should be 'find_objects'): {JSON.stringify(searchPlan)} 
+            Current Object Details:
+              - Label: "{object.objectLabel}"
+              - API Name: "{object.objectApiName}"
+              - Description: "{object.description || 'N/A'}"
+              - Tags: "{object.tags || 'N/A'}" 
+              - Is Custom: {object.isCustom ? "Yes" : "No"}
+
+            Task: Based on the Original User Query, the Derived Search Plan, and the Current Object Details, assess how well this specific Salesforce Object matches the user's likely intent.
+            Return ONLY one of the following confidence scores as a single word: "High", "Medium", or "Low".
+
+            Guidelines for Scoring:
+            - "High": Strong, direct match. Keywords from the query/plan appear prominently in the Object Label or API Name. The object's description or tags clearly align with the query's intent or common Salesforce object roles (e.g., "business" query and "Account" object).
+            - "Medium": Good partial or conceptual match. Some keywords match, or keywords match in description/tags but not strongly in the label/API name. The object seems generally relevant.
+            - "Low": Weak or indirect match. Few or no keywords match directly. The object's purpose seems tangential.
+
+            Output Example:
+            High
+            ```
+        *   This function (e.g., `getObjectMatchConfidence(originalQuery: string, searchPlan: NLQSearchPlan, object: SalesforceObject): Promise<"High" | "Medium" | "Low" | null>`) will take the original query, the `NLQSearchPlan` (where `intent` is `find_objects`), and a single `SalesforceObject`.
+        *   It will call the LLM with the prompt above and parse the "High", "Medium", or "Low" response.
+
+    *   **Task B: Integrate Object Scoring into Search Path:**
+        *   We need a new function, analogous to `refineSearchResultsWithLLM` but for objects, let's call it `refineObjectResultsWithLLM`.
+        *   **Function Signature:** `async function refineObjectResultsWithLLM(originalQuery: string, searchPlan: NLQSearchPlan, initialObjectResults: SalesforceObject[], maxResultsToRefine: number = 10, maxObjectsToReturn: number = 5): Promise<Array<SalesforceObject & { matchConfidence?: "High" | "Medium" | "Low" | null }>>`
+        *   **Implementation:**
+            *   If `initialObjectResults` is empty, return it.
+            *   Take the top `maxResultsToRefine` objects from `initialObjectResults`.
+            *   For each of these objects, call your new `getObjectMatchConfidence` function to get its score.
+            *   Return an array of these objects, each now including the `matchConfidence` property. The objects beyond `maxResultsToRefine` can be returned with `matchConfidence: null`.
+            *   This function *does not* need to do the final sorting or slicing to `maxObjectsToReturn` yet, as that can happen in the `/api/search` route or frontend. The main goal here is to attach confidence scores. *Correction: Let's keep it consistent with `refineSearchResultsWithLLM` and have it do the sorting and slicing for the objects it processes and scores.*
+
+3.  **Update API Route (`server/routes.ts`) - `/api/search` Endpoint:**
+    *   **Task:** When `searchPlan.intent === "find_objects"`, call the new `refineObjectResultsWithLLM` function and ensure the `objectResults` in the JSON response include the `matchConfidence`.
+    *   **Modified Logic Snippet:**
+        ```typescript
+        // ...
+        } else if (searchPlan.intent === "find_objects") {
+          const initialObjectResults = await searchSalesforceObjectsInDB(searchPlan);
+          // Apply LLM refinement and confidence scoring to object results
+          if (initialObjectResults.length > 0) {
+            try {
+              const refinementStartTime = Date.now();
+              // Call the new refinement function for objects
+              objectResults = await refineObjectResultsWithLLM(query, searchPlan, initialObjectResults); 
+              
+              const refinementTime = Date.now() - refinementStartTime;
+              refinementDetails = {
+                initialCount: initialObjectResults.length,
+                refinedCount: objectResults.length,
+                refinementTimeMs: refinementTime,
+                applied: true,
+                type: "object"
+              };
+            } catch (error) {
+              console.error("LLM object refinement failed, using initial results:", error);
+              objectResults = initialObjectResults.map(obj => ({ ...obj, matchConfidence: null }));
+              refinementDetails = {
+                initialCount: initialObjectResults.length,
+                refinedCount: initialObjectResults.length,
+                applied: false,
+                error: "Object refinement failed",
+                type: "object"
+              };
+            }
+          } else {
+             objectResults = []; // Ensure it's an empty array
+             refinementDetails = {
+                initialCount: 0,
+                refinedCount: 0,
+                applied: false,
+                reason: "No object results to process",
+                type: "object"
+             };
+          }
+          
+          summary = `Found ${objectResults.length} object(s) matching your query.`; 
+          if (objectResults.length > 0) {
+            narrativeSummary = `Discovered ${objectResults.length} Salesforce object(s). Key objects include: ${objectResults.slice(0,3).map(o => o.objectLabel).join(', ')}.`;
+          } else {
+            narrativeSummary = "No relevant Salesforce objects found for this query.";
+          }
+        // ...
+        res.json({
+          // ...
+          objectResults, // This array should now contain objects with matchConfidence
+          // ...
+        });
+        ```
+
+**Phase 2: Frontend Modifications - Display & Sort Object Results with Confidence**
+
+1.  **Update Object Results Component (`client/src/components/object-results.tsx`):**
+    *   **Task:** Modify the component to display the 'Match Confidence' for objects and sort them accordingly.
+    *   **Guidelines:**
+        *   **Sorting Logic:**
+            *   Before mapping `results` (which are `SalesforceObject[]`), sort the `results` array by `matchConfidence`.
+            *   Use the same sorting logic as in `client/src/components/search-results.tsx`: High > Medium > Low, with null/undefined last.
+                ```tsx
+                // Inside ObjectResults.tsx
+                const confidenceOrder = { High: 1, Medium: 2, Low: 3 };
+                const sortedObjectResults = [...results].sort((a, b) => {
+                  const confidenceA = a.matchConfidence || 'Low';
+                  const confidenceB = b.matchConfidence || 'Low';
+                  const orderA = confidenceOrder[confidenceA as keyof typeof confidenceOrder] || 4;
+                  const orderB = confidenceOrder[confidenceB as keyof typeof confidenceOrder] || 4;
+                
+                  if (orderA !== orderB) {
+                    return orderA - orderB;
+                  }
+                  // Optional: Add secondary sort criteria (e.g., by objectLabel)
+                  return a.objectLabel.localeCompare(b.objectLabel);
+                });
+                // Then map over sortedObjectResults
+                ```
+        *   **Display Confidence Pill:**
+            *   Inside each `Card` (or list item) that displays an object, add a `Badge` component to show the `obj.matchConfidence`.
+            *   Use the existing `getConfidenceBadgeClass` utility from `client/src/lib/utils.ts` to style the badge.
+            *   Example placement within the `CardHeader` or `CardContent` of `ObjectResults.tsx`:
+                ```tsx
+                // Inside the map function for results:
+                <CardHeader>
+                  <div className="flex justify-between items-start">
+                    <CardTitle className="flex items-center text-lg text-slate-900 dark:text-slate-100">
+                      <Database className="h-5 w-5 mr-2 text-blue-600 dark:text-blue-400" />
+                      {obj.objectLabel}
+                    </CardTitle>
+                    {obj.matchConfidence && (
+                      <Badge className={getConfidenceBadgeClass(obj.matchConfidence)}>
+                        {obj.matchConfidence}
+                      </Badge>
+                    )}
+                  </div>
+                  <CardDescription className="text-slate-600 dark:text-slate-400">
+                    API Name: <code className="bg-slate-100 dark:bg-slate-700 px-1 py-0.5 rounded text-xs">{obj.objectApiName}</code>
+                  </CardDescription>
+                </CardHeader>
+                ```
+
+2.  **Update Home Page State/Type (`client/src/pages/home.tsx`):**
+    *   **Task:** Ensure the `objectResults` state and its type `SalesforceObject` correctly include the new `matchConfidence` field from the API response. (This should be automatic if using the shared schema types correctly after Phase 1, Step 1).
+
+**Constraints & Considerations:**
+
+*   **LLM Latency & Cost:** Scoring each object result with an LLM call will add latency and cost, similar to field scoring.
+*   **Prompt Clarity:** The LLM prompt for object confidence scoring needs to be clear.
+*   **Error Handling:** Handle cases where the LLM fails to provide a confidence score for an object.
+
+This prompt outlines the necessary steps to add LLM-based confidence scoring and sorting to your object search results. Remember to test thoroughly after each phase. Good luck!"

@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { NLQEntity, NLQSearchPlan, SalesforceField, nlqEntitySchema, nlqSearchPlanSchema } from "@shared/schema";
+import { NLQEntity, NLQSearchPlan, SalesforceField, SalesforceObject, nlqEntitySchema, nlqSearchPlanSchema } from "@shared/schema";
 
 // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
 const openai = new OpenAI({ 
@@ -621,6 +621,52 @@ High`;
   }
 }
 
+async function getObjectMatchConfidence(
+  originalQuery: string,
+  searchPlan: NLQSearchPlan,
+  object: SalesforceObject
+): Promise<"High" | "Medium" | "Low" | null> {
+  try {
+    const prompt = `Context: You are an AI assistant evaluating the relevance of a Salesforce Object to a user's query and the derived search plan.
+Original User Query: "${originalQuery}"
+Derived Search Plan (intent should be 'find_objects'): ${JSON.stringify(searchPlan)} 
+Current Object Details:
+  - Label: "${object.objectLabel}"
+  - API Name: "${object.objectApiName}"
+  - Description: "${object.description || 'N/A'}"
+  - Tags: "${object.tags || 'N/A'}" 
+  - Is Custom: ${object.isCustom ? "Yes" : "No"}
+
+Task: Based on the Original User Query, the Derived Search Plan, and the Current Object Details, assess how well this specific Salesforce Object matches the user's likely intent.
+Return ONLY one of the following confidence scores as a single word: "High", "Medium", or "Low".
+
+Guidelines for Scoring:
+- "High": Strong, direct match. Keywords from the query/plan appear prominently in the Object Label or API Name. The object's description or tags clearly align with the query's intent or common Salesforce object roles (e.g., "business" query and "Account" object).
+- "Medium": Good partial or conceptual match. Some keywords match, or keywords match in description/tags but not strongly in the label/API name. The object seems generally relevant.
+- "Low": Weak or indirect match. Few or no keywords match directly. The object's purpose seems tangential.
+
+Output Example:
+High`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.1,
+      max_tokens: 10,
+    });
+
+    const content = response.choices[0].message.content?.trim();
+    if (content === "High" || content === "Medium" || content === "Low") {
+      return content;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error("Error getting object match confidence:", error);
+    return null;
+  }
+}
+
 export async function refineSearchResultsWithLLM(
   originalQuery: string,
   searchPlan: NLQSearchPlan,
@@ -680,6 +726,62 @@ export async function refineSearchResultsWithLLM(
   } catch (error) {
     console.error("Error refining search results:", error);
     return initialResults.map(field => ({ ...field, matchConfidence: null }));
+  }
+}
+
+export async function refineObjectResultsWithLLM(
+  originalQuery: string,
+  searchPlan: NLQSearchPlan,
+  initialObjectResults: SalesforceObject[],
+  maxResultsToRefine: number = 10,
+  maxObjectsToReturn: number = 5
+): Promise<Array<SalesforceObject & { matchConfidence?: "High" | "Medium" | "Low" | null }>> {
+  try {
+    // Return immediately if no results to refine
+    if (initialObjectResults.length === 0) {
+      return initialObjectResults;
+    }
+
+    // Process up to maxResultsToRefine objects for confidence scoring
+    const objectsToProcess = initialObjectResults.slice(0, maxResultsToRefine);
+    
+    // Add match confidence scores using LLM
+    const objectsWithConfidence = await Promise.all(
+      objectsToProcess.map(async (object) => {
+        const matchConfidence = await getObjectMatchConfidence(originalQuery, searchPlan, object);
+        return { ...object, matchConfidence };
+      })
+    );
+
+    // Add remaining objects without confidence scores
+    const remainingObjects = initialObjectResults.slice(maxResultsToRefine).map(object => ({ ...object, matchConfidence: null }));
+    
+    // Combine all results
+    const allObjectsWithConfidence = [...objectsWithConfidence, ...remainingObjects];
+
+    // Sort by confidence first, then by object label
+    const confidenceOrder = { High: 1, Medium: 2, Low: 3 };
+    
+    const sortedResults = allObjectsWithConfidence.sort((a, b) => {
+      // Primary sort: confidence level
+      const confidenceA = a.matchConfidence || 'Low';
+      const confidenceB = b.matchConfidence || 'Low';
+      const orderA = confidenceOrder[confidenceA as keyof typeof confidenceOrder] || 4;
+      const orderB = confidenceOrder[confidenceB as keyof typeof confidenceOrder] || 4;
+      
+      if (orderA !== orderB) {
+        return orderA - orderB;
+      }
+      
+      // Secondary sort: alphabetical by object label
+      return a.objectLabel.localeCompare(b.objectLabel);
+    });
+
+    return sortedResults.slice(0, maxObjectsToReturn);
+
+  } catch (error) {
+    console.error("Error refining object search results:", error);
+    return initialObjectResults.map(object => ({ ...object, matchConfidence: null }));
   }
 }
 
