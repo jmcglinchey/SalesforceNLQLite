@@ -58,6 +58,21 @@ export const salesforceFields = pgTable("salesforce_fields", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Salesforce Object metadata table
+export const salesforceObjects = pgTable("salesforce_objects", {
+  id: serial("id").primaryKey(),
+  objectLabel: text("object_label").notNull(),
+  objectApiName: text("object_api_name").notNull().unique(),
+  description: text("description"),
+  pluralLabel: text("plural_label"),
+  keyPrefix: text("key_prefix"),
+  isCustom: boolean("is_custom").default(false),
+  tags: text("tags"),
+  sharingModel: text("sharing_model"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Query logs for analytics
 export const queryLogs = pgTable("query_logs", {
   id: serial("id").primaryKey(),
@@ -84,6 +99,13 @@ export const insertSalesforceFieldSchema = createInsertSchema(salesforceFields).
   updatedAt: true,
 });
 
+// Schema for inserting salesforce objects
+export const insertSalesforceObjectSchema = createInsertSchema(salesforceObjects).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Schema for query requests
 export const queryRequestSchema = z.object({
   query: z.string().min(1, "Query cannot be empty"),
@@ -102,7 +124,7 @@ export const filterGroupSchema = z.object({
 });
 
 export const nlqSearchPlanSchema = z.object({
-  intent: z.enum(["find_fields", "describe_field", "list_objects", "filter_by_type"]).default("find_fields"),
+  intent: z.enum(["find_fields", "find_objects", "describe_field", "list_objects", "filter_by_type"]).default("find_fields"),
   targetObject: z.string().nullable().optional(), // Primary Salesforce object if specified
   filterGroups: z.array(filterGroupSchema), // Main search criteria
   dataTypeFilter: searchConditionSchema.nullable().optional(), // Optional data type filter
@@ -149,6 +171,8 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type SalesforceField = typeof salesforceFields.$inferSelect;
 export type InsertSalesforceField = z.infer<typeof insertSalesforceFieldSchema>;
+export type SalesforceObject = typeof salesforceObjects.$inferSelect;
+export type InsertSalesforceObject = z.infer<typeof insertSalesforceObjectSchema>;
 export type QueryRequest = z.infer<typeof queryRequestSchema>;
 export type NLQEntity = z.infer<typeof nlqEntitySchema>;
 export type NLQSearchPlan = z.infer<typeof nlqSearchPlanSchema>;

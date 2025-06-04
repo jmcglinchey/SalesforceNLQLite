@@ -1,4 +1,4 @@
-import { users, salesforceFields, queryLogs, type User, type InsertUser, type SalesforceField, type QueryLog, type InsertSalesforceField } from "@shared/schema";
+import { users, salesforceFields, salesforceObjects, queryLogs, type User, type InsertUser, type SalesforceField, type SalesforceObject, type InsertSalesforceObject, type QueryLog, type InsertSalesforceField } from "@shared/schema";
 import { NLQEntity } from "@shared/schema";
 import { db } from "./db";
 import { eq } from "drizzle-orm";

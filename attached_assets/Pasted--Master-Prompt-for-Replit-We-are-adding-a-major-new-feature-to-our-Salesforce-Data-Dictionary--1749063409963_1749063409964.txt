@@ -1,0 +1,262 @@
+**Master Prompt for Replit:**
+
+"We are adding a major new feature to our Salesforce Data Dictionary NLQ application: the ability to search for Salesforce Objects (e.g., Account, Opportunity, Case) in addition to fields. This involves creating a new database table for object metadata, implementing a CSV upload for this data, updating our LLM logic to understand object-related queries, and adding a new section to the frontend to display object search results.
+
+Please implement the following changes:
+
+**Phase 1: Backend - Data Layer & Object Metadata Upload**
+
+1.  **Update Shared Schema (`shared/schema.ts`):**
+    *   **Task:** Define a new Zod schema and Drizzle PG table for Salesforce Objects.
+    *   **Details for `SalesforceObject` schema and `salesforceObjects` table:**
+        *   `id`: `serial("id").primaryKey()`
+        *   `objectLabel`: `text("object_label").notNull()` (e.g., "Account")
+        *   `objectApiName`: `text("object_api_name").notNull().unique()` (e.g., "Account", "My_Custom_Object__c")
+        *   `description`: `text("description")` (e.g., "Information about companies or organizations.")
+        *   `pluralLabel`: `text("plural_label")` (e.g., "Accounts")
+        *   `keyPrefix`: `text("key_prefix")` (e.g., "001") - Optional
+        *   `isCustom`: `boolean("is_custom").default(false)`
+        *   `tags`: `text("tags")` (Store as a comma-separated string, e.g., "Sales,Customer Data,Core Object")
+        *   `sharingModel`: `text("sharing_model")` (Optional, e.g., "ReadWrite")
+        *   `createdAt`: `timestamp("created_at").defaultNow()`
+        *   `updatedAt`: `timestamp("updated_at").defaultNow()`
+    *   **Zod Schemas:** Create `insertSalesforceObjectSchema` and an export type `SalesforceObject` similar to how it's done for `salesforceFields`.
+    *   **API Response:** Update the `SearchResult` in `server/routes.ts` (and implicitly `searchResultSchema` in `shared/schema.ts` if they are linked) to potentially include an `objectResults: SalesforceObject[]` array. For now, keep `fieldResults` and add `objectResults` as separate top-level keys in the API response.
+
+2.  **Update Storage (`server/storage.ts`):**
+    *   **Task:** Add new methods to `DatabaseStorage` (and its interface `IStorage`) for handling Salesforce Object data.
+    *   **New Methods:**
+        *   `insertSalesforceObjects(objects: InsertSalesforceObject[]): Promise<void>` - Similar to `insertSalesforceFields`, including batching.
+        *   `clearSalesforceObjects(): Promise<void>` - Similar to `clearSalesforceFields`.
+        *   `getSalesforceObjectCount(): Promise<number>` - Similar to `getSalesforceFieldCount`.
+
+3.  **Update API Routes (`server/routes.ts`):**
+    *   **Task:** Create a new API endpoint for uploading the Salesforce Objects CSV.
+    *   **New Endpoint:** `POST /api/upload-objects-csv`
+        *   Use `multer` similar to `/api/upload-csv`.
+        *   The endpoint should parse the CSV, transform rows into `InsertSalesforceObject` format (mapping CSV headers like "Label", "ApiName", "Description", "PluralLabel", "KeyPrefix", "IsCustom", "Tags" to the schema fields).
+        *   Call `storage.clearSalesforceObjects()` then `storage.insertSalesforceObjects()`.
+        *   Return a success message with counts.
+    *   **Update Health Check & Upload Status:**
+        *   Modify `/api/health` and `/api/upload-status` to also report `objectCount` and whether object data `hasObjectData` is present, using `storage.getSalesforceObjectCount()`. The frontend `CSVUpload` component might need slight adjustments or a new similar component if the upload process/UI differs for objects. For MVP, assume the user uploads field data first, then object data, or a UI that allows choosing. *For this prompt, focus on the backend; UI for distinct uploads can be a follow-up.* For simplicity, let's assume the existing CSV upload page will need a way to trigger this new object upload (perhaps a second button or a dropdown to select CSV type). *However, to keep this prompt focused, let's assume a separate, direct API call for now and the frontend will be updated later.*
+
+**Phase 2: Backend - NLQ & Search Logic for Objects**
+
+1.  **Update NLQ Schema (`shared/schema.ts`):**
+    *   **Task:** Modify the `nlqSearchPlanSchema` to support object search intent.
+    *   **Details:**
+        *   Add `"find_objects"` to the `intent` enum: `z.enum(["find_fields", "find_objects", "describe_field", ...])`.
+
+2.  **Modify NLQ Service (`server/nlq.ts`) - `generateSearchPlan` Function:**
+    *   **Task:** Update the main system prompt given to the OpenAI LLM to enable it to understand queries about Salesforce Objects and generate an appropriate `NLQSearchPlan`.
+    *   **Guidelines for LLM Prompt Update:**
+        *   **New Intent Introduction:** Clearly state that the LLM can now generate plans with `intent: "find_objects"`.
+        *   **Available Object Fields for Querying:** Inform the LLM about the fields in the `salesforceObjects` table it can use for conditions: `objectLabel`, `objectApiName`, `description`, `tags`.
+        *   **New Rules for Object Intent:** Add a new "CRITICAL" section:
+            ```
+            CRITICAL: Object Search Intent Rules:
+            1. If the query explicitly asks about an object (e.g., "what is the Account object?", "tell me about Opportunities", "details for Case object"), set 'intent' to "find_objects".
+            2. If the query asks for objects related to a concept (e.g., "what objects are used for sales?", "show me objects for customer support"), set 'intent' to "find_objects" and use the concept (e.g., "sales", "customer support") as keywords in 'filterGroups' targeting 'objectLabel', 'description', and 'tags' of the salesforceObjects table.
+            3. For "find_objects" intent, 'dataTypeFilter' should typically be null.
+            4. 'targetObject' in the plan can still be used to specify a particular object name if the query is "tell me about the Account object". In this case, 'filterGroups' might be minimal or focus on the 'objectLabel' or 'objectApiName' equaling this target.
+            5. If the query is ambiguous between finding fields on an object vs. finding the object itself (e.g., "Account information"), prioritize "find_fields" intent by default unless specific object-describing language is used ("what is...", "tell me about the object...").
+            ```
+        *   **New Examples for Object Search Plans:**
+            ```json
+            Query: "Tell me about the Account object"
+            {
+              "intent": "find_objects",
+              "targetObject": "Account", // Or use filterGroup condition
+              "filterGroups": [
+                {
+                  "logicalOperator": "OR",
+                  "conditions": [
+                    { "field": "objectLabel", "operator": "ilike", "value": "%Account%" },
+                    { "field": "objectApiName", "operator": "ilike", "value": "%Account%" }
+                  ]
+                }
+              ],
+              "dataTypeFilter": null,
+              "rawKeywords": ["tell me about", "Account", "object"]
+            }
+
+            Query: "What Salesforce objects are related to sales and marketing?"
+            {
+              "intent": "find_objects",
+              "targetObject": null,
+              "filterGroups": [
+                {
+                  "logicalOperator": "OR", // Find objects matching EITHER sales OR marketing in their description/tags
+                  "conditions": [
+                    { "field": "description", "operator": "ilike", "value": "%sales%" },
+                    { "field": "tags", "operator": "ilike", "value": "%sales%" },
+                    { "field": "objectLabel", "operator": "ilike", "value": "%sales%" },
+                    { "field": "description", "operator": "ilike", "value": "%marketing%" },
+                    { "field": "tags", "operator": "ilike", "value": "%marketing%" },
+                    { "field": "objectLabel", "operator": "ilike", "value": "%marketing%" }
+                  ]
+                }
+              ],
+              "dataTypeFilter": null,
+              "rawKeywords": ["objects", "related to", "sales", "marketing"]
+            }
+            ```
+        *   **Clarify `filterGroups` Target:** When `intent` is `find_objects`, the `field` names in `filterGroups.conditions` (e.g., `objectLabel`, `description`, `tags`) refer to columns in the `salesforceObjects` table. When `intent` is `find_fields`, they refer to columns in the `salesforceFields` table. The LLM must understand this distinction.
+
+3.  **Create New Database Search Function (`server/database-search.ts`):**
+    *   **Task:** Create a new function `searchSalesforceObjectsInDB(plan: NLQSearchPlan): Promise<SalesforceObject[]>`.
+    *   **Implementation:**
+        *   This function will be very similar to `searchSalesforceFieldsInDB`.
+        *   It will query the `salesforceObjects` table (imported from `@shared/schema`).
+        *   The `getFieldByName` helper will need to be adapted or a new one created (`getObjectFieldByName`) that maps condition fields like "objectLabel", "description", "tags" to the actual columns in `salesforceObjects`.
+        *   It will build `WHERE` clauses based on `plan.targetObject` (if any, matching `objectLabel` or `objectApiName`) and `plan.filterGroups`.
+        *   The `processSearchCondition` function might need to be slightly generalized or duplicated if object tag searching (e.g., comma-separated string in `tags` column) requires different SQL than field tag searching (if that was an array type). For simplicity, assume `tags` in `salesforceObjects` is also a text field searchable with `ilike`.
+        *   Return `SalesforceObject[]`.
+
+4.  **Modify API Route (`server/routes.ts`) - `/api/search` Endpoint:**
+    *   **Task:** Update the `/api/search` endpoint to conditionally call `searchSalesforceObjectsInDB` or `searchSalesforceFieldsInDB` based on the `intent` in the `searchPlan`. The response should include results for the executed intent.
+    *   **Logic:**
+        ```typescript
+        // ... after generating searchPlan
+        let fieldResults: SearchResult[] = [];
+        let objectResults: SalesforceObject[] = []; // SalesforceObject from shared schema
+        let narrativeSummary = "No information found for this query.";
+        let summary = "No results.";
+
+        if (searchPlan.intent === "find_objects") {
+          objectResults = await searchSalesforceObjectsInDB(searchPlan);
+          summary = `Found ${objectResults.length} object(s)`; 
+          // narrativeSummary for objects can be simple for now, or a future LLM call
+          if (objectResults.length > 0) {
+            narrativeSummary = `Discovered ${objectResults.length} Salesforce object(s) related to your query. Key objects include: ${objectResults.slice(0,3).map(o => o.objectLabel).join(', ')}.`;
+          }
+        } else if (searchPlan.intent === "find_fields") {
+          const initialFieldResults = await searchSalesforceFieldsInDB(searchPlan);
+          // ... existing field refinement logic for initialFieldResults ...
+          // fieldResults = refinedFieldResults;
+          // summary = buildSearchSummary(searchPlan, fieldResults.length);
+          // narrativeSummary = await generateResultsSummary(query, fieldResults);
+          // For this prompt, ensure the original field search path remains intact.
+          // We'll just copy the existing structure for now.
+            const initialFieldResults = await searchSalesforceFieldsInDB(searchPlan);
+            if (initialFieldResults.length > 0) {
+                fieldResults = await refineSearchResultsWithLLM(query, searchPlan, initialFieldResults); // refineSearchResultsWithLLM now returns fields with matchConfidence
+            } else {
+                fieldResults = []; // Ensure it's an empty array if no initial results
+            }
+            summary = buildSearchSummary(searchPlan, fieldResults.length);
+            narrativeSummary = fieldResults.length > 0 
+                ? await generateResultsSummary(query, fieldResults)
+                : "No specific fields found to summarize for this query.";
+
+        }
+        // ... (logging remains similar) ...
+        res.json({
+          query,
+          entities: searchPlan, // This is the NLQSearchPlan
+          fieldResults,       // Array of SearchResult (fields)
+          objectResults,      // Array of SalesforceObject
+          resultCount: searchPlan.intent === "find_objects" ? objectResults.length : fieldResults.length,
+          summary,
+          narrativeSummary,
+          // ... other existing response fields
+        });
+        ```
+    *   **Update `buildSearchSummary` and `generateResultsSummary` (Consideration):**
+        *   For now, these functions are field-focused. `buildSearchSummary` could be made generic or a new `buildObjectSearchSummary` created. `generateResultsSummary` is definitely field specific. For this prompt, it's okay if the summary for object searches is simpler and not LLM-generated, as shown in the snippet above.
+
+**Phase 3: Frontend - Display Object Search Results**
+
+1.  **Update Home Page (`client/src/pages/home.tsx`):**
+    *   **Task:** Add new state to hold object search results and update the API call handling.
+    *   **State:**
+        *   `const [objectSearchResults, setObjectSearchResults] = useState<SalesforceObject[]>([]);` (Import `SalesforceObject` type from `@shared/schema`).
+    *   **`handleSearchResults` function:**
+        *   This function now needs to accept `fieldResults: SearchResult[]` and `objectResults: SalesforceObject[]` from the API.
+        *   Update its signature: `handleSearchResults = (fieldResults: SearchResult[], objectResults: SalesforceObject[], summary: string, narrativeSummary?: string) => { ... }`
+        *   Set both `setSearchResults(fieldResults)` and `setObjectSearchResults(objectResults)`.
+    *   **API Call in `QueryInput.tsx` (or wherever `/api/search` is called):**
+        *   Ensure the component calling `/api/search` correctly extracts `fieldResults` and `objectResults` from the API response and passes them to `handleSearchResults`.
+        *   The `onSearchResults` prop of `QueryInput` will need its signature updated.
+
+2.  **Create New Component `ObjectResults.tsx` (`client/src/components/object-results.tsx`):**
+    *   **Task:** Create a new React component to display object search results.
+    *   **Props:** `results: SalesforceObject[]`, `summary?: string`
+    *   **Implementation (Example using Cards):**
+        ```tsx
+        import { SalesforceObject } from "@shared/schema";
+        import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+        import { Badge } from "@/components/ui/badge";
+        import { Archive } from "lucide-react"; // Or another suitable icon
+
+        interface ObjectResultsProps {
+          results: SalesforceObject[];
+          summary?: string;
+        }
+
+        export default function ObjectResults({ results, summary }: ObjectResultsProps) {
+          if (!results || results.length === 0) {
+            return null; // Or a "No objects found" message if this component handles that state
+          }
+
+          return (
+            <section className="mb-8">
+              <div className="mb-4">
+                <h3 className="text-xl font-semibold text-slate-900">Relevant Objects</h3>
+                {summary && <p className="text-sm text-slate-600">{summary}</p>}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {results.map((obj) => (
+                  <Card key={obj.objectApiName} className="bg-white shadow-sm hover:shadow-md transition-shadow">
+                    <CardHeader>
+                      <CardTitle className="flex items-center text-lg">
+                        <Archive className="h-5 w-5 mr-2 text-primary" /> {/* Replace with better icon */}
+                        {obj.objectLabel}
+                      </CardTitle>
+                      <CardDescription>API Name: <code>{obj.objectApiName}</code></CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-slate-700 mb-3 min-h-[40px]">
+                        {obj.description ? obj.description.substring(0, 150) + (obj.description.length > 150 ? '...' : '') : <span className="italic">No description available.</span>}
+                      </p>
+                      {obj.isCustom && <Badge variant="outline" className="mr-2">Custom</Badge>}
+                      {obj.tags && obj.tags.split(',').map(tag => (
+                        <Badge key={tag} variant="secondary" className="mr-1 mb-1 text-xs">{tag.trim()}</Badge>
+                      ))}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </section>
+          );
+        }
+        ```
+
+3.  **Integrate `ObjectResults` into `client/src/pages/home.tsx`:**
+    *   **Task:** Render the `ObjectResults` component when there are object results.
+    *   **Placement:** Display it above or below the `SearchResults` (for fields), or based on which type of results are primary for the query. For now, let's show it if `objectSearchResults.length > 0`.
+        ```tsx
+        // Inside Home.tsx's return, within the main content area:
+        {objectSearchResults.length > 0 && (
+            <ObjectResults results={objectSearchResults} />
+        )}
+        {/* Existing field results display */}
+        {showResults && ( // showResults currently means field results
+          <SearchResults 
+            results={searchResults} // This is fieldResults
+            summary={resultSummary} // This summary might need to be intent-specific
+            onFieldSelect={setSelectedField}
+          />
+        )}
+        ```
+    *   **Summary Handling:** The `resultSummary` and `narrativeSummary` passed to `QueryInput`'s `onSearchResults` callback and displayed on the `Home` page might need to be more dynamic to reflect whether field or object results (or both) are being summarized. The API response now provides a `summary` field which should be used.
+
+**Constraints & Considerations:**
+
+*   **UI for Dual Results:** Consider how to best present results if a query could legitimately return both relevant fields *and* relevant objects. For this iteration, we're assuming the LLM picks a primary intent (`find_fields` or `find_objects`) for the plan.
+*   **CSV Upload UI:** The prompt defers major UI changes for CSV upload to keep it focused. In a real scenario, you'd need to update the UI to allow users to specify they are uploading object data or have separate upload sections.
+*   **Object Details Modal:** Clicking on an object in `ObjectResults` could open a modal with more details, similar to `FieldDetailsModal`. This is a good next step but out of scope for this prompt.
+*   **LLM Prompt Engineering:** The LLM prompt in `generateSearchPlan` is becoming quite complex. Careful wording and extensive testing are crucial. Ensure distinct examples for `find_fields` and `find_objects` intents.
+*   **Error Handling:** Ensure robust error handling throughout the new CSV upload and search paths.
+
+Tackle it step-by-step, starting with backend schema, then storage, CSV upload API, LLM prompt updates, new DB search function, API response modification, and finally frontend UI for displaying object results. Good luck!"
