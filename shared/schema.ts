@@ -91,9 +91,9 @@ export const queryRequestSchema = z.object({
 
 // Schema for NLQ entity extraction
 export const nlqEntitySchema = z.object({
-  object: z.string().optional(),
+  object: z.string().nullable().optional(),
   keywords: z.array(z.string()).default([]),
-  dataType: z.string().optional(),
+  dataType: z.string().nullable().optional(),
   intent: z.enum(["find_fields", "describe_field", "list_objects", "filter_by_type"]).default("find_fields"),
 });
 
