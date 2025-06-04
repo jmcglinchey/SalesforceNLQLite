@@ -386,16 +386,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .on('error', reject);
       });
 
-      // Transform and validate the data
+      // Transform and validate the data based on actual CSV columns
       const transformedObjects = results.map((row) => {
-        const objectLabel = row.Name || row.Label || row.ObjectLabel || '';
-        const objectApiName = row.ApiName || row.ObjectApiName || '';
+        const objectLabel = row.Name || '';
+        const objectApiName = row.ApiName || '';
         const description = row.Description && row.Description.trim() ? row.Description.trim() : null;
-        const pluralLabel = row.PluralLabel && row.PluralLabel.trim() ? row.PluralLabel.trim() : null;
-        const keyPrefix = row.KeyPrefix && row.KeyPrefix.trim() ? row.KeyPrefix.trim() : null;
-        const isCustom = row.IsCustom === 'TRUE' || row.IsCustom === 'true' || row.Custom === 'TRUE' || row.Custom === 'true';
-        const tags = row.Tags && row.Tags.trim() ? row.Tags.trim() : null;
-        const sharingModel = row.SharingModel && row.SharingModel.trim() ? row.SharingModel.trim() : null;
+        const pluralLabel = null; // Not in CSV
+        const keyPrefix = null; // Not in CSV
+        const isCustom = row.IsCustom === 'TRUE' || row.IsCustom === 'true' || row.IsCustom === '1' || row.IsCustom === 1;
+        const tags = null; // Not in CSV
+        const sharingModel = null; // Not in CSV
 
         return {
           objectLabel,
