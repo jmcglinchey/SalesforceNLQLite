@@ -340,15 +340,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/upload-status", async (req, res) => {
     try {
       const fieldCount = await getSalesforceFieldCount();
+      const objectCount = await storage.getSalesforceObjectCount();
+      const hasFieldData = fieldCount > 0;
+      const hasObjectData = objectCount > 0;
+      
       res.json({
-        hasData: fieldCount > 0,
+        hasData: hasFieldData, // Keep backward compatibility
+        hasFieldData,
+        hasObjectData,
         fieldCount,
-        message: fieldCount > 0 ? `Database contains ${fieldCount} fields` : "No data uploaded yet"
+        objectCount,
+        message: hasFieldData ? `Database contains ${fieldCount} fields` : "No field data uploaded yet"
       });
     } catch (error) {
       res.json({
         hasData: false,
+        hasFieldData: false,
+        hasObjectData: false,
         fieldCount: 0,
+        objectCount: 0,
         message: "No data uploaded yet"
       });
     }

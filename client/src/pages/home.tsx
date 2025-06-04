@@ -59,7 +59,7 @@ export default function Home() {
   const showResults = hasSearched && !isSearching && searchResults.length > 0;
   const showNoResults = hasSearched && !isSearching && searchResults.length === 0;
   const showEmpty = !hasSearched && !isSearching;
-  const showUpload = !uploadStatus?.hasData;
+  const showUpload = !uploadStatus?.hasFieldData || !uploadStatus?.hasObjectData;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -88,9 +88,18 @@ export default function Home() {
               <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Database className="h-8 w-8 text-primary" />
               </div>
-              <h2 className="text-2xl font-semibold text-slate-900 mb-2">Get Started</h2>
+              <h2 className="text-2xl font-semibold text-slate-900 mb-2">
+                {!uploadStatus?.hasFieldData && !uploadStatus?.hasObjectData ? "Get Started" : "Complete Your Setup"}
+              </h2>
               <p className="text-slate-600 max-w-2xl mx-auto">
-                Upload your Salesforce metadata CSV files to start asking questions about your data in plain English
+                {!uploadStatus?.hasFieldData && !uploadStatus?.hasObjectData 
+                  ? "Upload your Salesforce metadata CSV files to start asking questions about your data in plain English"
+                  : uploadStatus?.hasFieldData && !uploadStatus?.hasObjectData
+                  ? "Your field data is ready. Upload your objects CSV to enable complete search capabilities including object queries."
+                  : !uploadStatus?.hasFieldData && uploadStatus?.hasObjectData
+                  ? "Your object data is ready. Upload your fields CSV to enable complete search capabilities including field queries."
+                  : "Upload your Salesforce metadata CSV files to start asking questions about your data in plain English"
+                }
               </p>
             </div>
             
