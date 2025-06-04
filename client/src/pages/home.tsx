@@ -3,17 +3,19 @@ import { Search, Database, Lightbulb } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import QueryInput from "@/components/query-input";
 import SearchResults from "@/components/search-results";
+import ObjectResults from "@/components/object-results";
 import FieldDetailsModal from "@/components/field-details-modal";
 import ExampleQueries from "@/components/example-queries";
 import LoadingState from "@/components/loading-state";
 import EmptyState from "@/components/empty-state";
 import CSVUpload from "@/components/csv-upload";
-import { SearchResult } from "@shared/schema";
+import { SearchResult, SalesforceObject } from "@shared/schema";
 import { useQuery } from "@tanstack/react-query";
 
 export default function Home() {
   const [selectedField, setSelectedField] = useState<SearchResult | null>(null);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [objectResults, setObjectResults] = useState<SalesforceObject[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [resultSummary, setResultSummary] = useState<string>("");
@@ -28,8 +30,9 @@ export default function Home() {
     }
   });
 
-  const handleSearchResults = (results: SearchResult[], summary: string, narrativeSummary?: string) => {
-    setSearchResults(results);
+  const handleSearchResults = (fieldResults: SearchResult[], objectResults: SalesforceObject[], summary: string, narrativeSummary?: string) => {
+    setSearchResults(fieldResults);
+    setObjectResults(objectResults);
     setResultSummary(summary);
     setNarrativeSummary(narrativeSummary || "");
     setHasSearched(true);

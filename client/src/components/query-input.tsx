@@ -4,11 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { SearchResult } from "@shared/schema";
+import { SearchResult, SalesforceObject } from "@shared/schema";
 
 interface QueryInputProps {
   onSearchStart: () => void;
-  onSearchResults: (results: SearchResult[], summary: string, narrativeSummary?: string) => void;
+  onSearchResults: (fieldResults: SearchResult[], objectResults: SalesforceObject[], summary: string, narrativeSummary?: string) => void;
   onSearchError: () => void;
 }
 
@@ -39,7 +39,8 @@ export default function QueryInput({ onSearchStart, onSearchResults, onSearchErr
       }
 
       onSearchResults(
-        data.results || [], 
+        data.fieldResults || data.results || [], 
+        data.objectResults || [],
         data.summary || `Found ${data.resultCount || 0} results`,
         data.narrativeSummary || ""
       );
