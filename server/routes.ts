@@ -386,18 +386,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .on('error', reject);
       });
 
+      // Debug: Log first few rows to understand structure
+      console.log("First 3 CSV rows:", results.slice(0, 3));
+      console.log("CSV columns found:", Object.keys(results[0] || {}));
+
       // Transform and validate the data
       const transformedObjects = results.map((row) => {
-        const objectLabel = row.Label || row.ObjectLabel || '';
-        const objectApiName = row.ApiName || row.Name || row.ObjectApiName || '';
+        // Map CSV columns to database schema
+        const objectLabel = row.Name || row.Label || row.ObjectLabel || '';
+        const objectApiName = row.ApiName || row.ObjectApiName || '';
         const description = row.Description && row.Description.trim() ? row.Description.trim() : null;
         const pluralLabel = row.PluralLabel && row.PluralLabel.trim() ? row.PluralLabel.trim() : null;
         const keyPrefix = row.KeyPrefix && row.KeyPrefix.trim() ? row.KeyPrefix.trim() : null;
-        const isCustom = row.IsCustom === 'TRUE' || row.IsCustom === 'true' || row.Custom === 'TRUE' || row.Custom === 'true';
+        const isCustom = row.IsCustom === 'True' || row.IsCustom === 'true' || row.IsCustom === 'TRUE' || row.Custom === 'True' || row.Custom === 'true' || row.Custom === 'TRUE';
         const tags = row.Tags && row.Tags.trim() ? row.Tags.trim() : null;
         const sharingModel = row.SharingModel && row.SharingModel.trim() ? row.SharingModel.trim() : null;
 
-        return {
+        const transformed = {
           objectLabel,
           objectApiName,
           description,
@@ -407,7 +412,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           tags,
           sharingModel
         };
+
+        // Debug log transformation
+        if (results.indexOf(row) < 3) {
+          console.log(`Row ${results.indexOf(row)} transformation:`, { original: row, transformed });
+        }
+
+        return transformed;
       }).filter(obj => obj.objectLabel && obj.objectApiName);
+
+      console.log(`Filtered objects count: ${transformedObjects.length} from ${results.length} total rows`);
 
       // Validate using schema
       const validatedObjects = transformedObjects.map(obj => 
