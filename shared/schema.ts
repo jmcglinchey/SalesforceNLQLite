@@ -89,7 +89,27 @@ export const queryRequestSchema = z.object({
   query: z.string().min(1, "Query cannot be empty"),
 });
 
-// Schema for NLQ entity extraction
+// Enhanced search condition schema for structured query planning
+export const searchConditionSchema = z.object({
+  field: z.string(), // Column name from salesforceFields table
+  operator: z.enum(["ilike", "equals_ignore_case", "contains_in_array_field"]),
+  value: z.union([z.string(), z.array(z.string())]),
+});
+
+export const filterGroupSchema = z.object({
+  logicalOperator: z.enum(["AND", "OR"]), // How conditions within this group are combined
+  conditions: z.array(searchConditionSchema),
+});
+
+export const nlqSearchPlanSchema = z.object({
+  intent: z.enum(["find_fields", "describe_field", "list_objects", "filter_by_type"]).default("find_fields"),
+  targetObject: z.string().nullable().optional(), // Primary Salesforce object if specified
+  filterGroups: z.array(filterGroupSchema), // Main search criteria
+  dataTypeFilter: searchConditionSchema.nullable().optional(), // Optional data type filter
+  rawKeywords: z.array(z.string()).default([]), // Raw keywords for context
+});
+
+// Legacy schema for backwards compatibility
 export const nlqEntitySchema = z.object({
   object: z.string().nullable().optional(),
   keywords: z.array(z.string()).default([]),
@@ -130,5 +150,8 @@ export type SalesforceField = typeof salesforceFields.$inferSelect;
 export type InsertSalesforceField = z.infer<typeof insertSalesforceFieldSchema>;
 export type QueryRequest = z.infer<typeof queryRequestSchema>;
 export type NLQEntity = z.infer<typeof nlqEntitySchema>;
+export type NLQSearchPlan = z.infer<typeof nlqSearchPlanSchema>;
+export type SearchCondition = z.infer<typeof searchConditionSchema>;
+export type FilterGroup = z.infer<typeof filterGroupSchema>;
 export type SearchResult = z.infer<typeof searchResultSchema>;
 export type QueryLog = typeof queryLogs.$inferSelect;

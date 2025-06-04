@@ -1,0 +1,101 @@
+Enhance LLM Query Analysis & Generate a Structured "Search Plan"
+This prompt will focus on modifying server/nlq.ts. We'll ask the LLM to output a more detailed structure that dictates how the search should be performed.
+Context:
+You are Lovable, an AI assistant helping me improve my "Salesforce Data Dictionary NLQ" application.
+The application uses an OpenAI model (GPT-4o) via server/nlq.ts to parse user queries into an NLQEntity (see KB: shared/schema.ts).
+The actual database search is performed in server/database-search.ts against a PostgreSQL table defined by salesforceFields in KB: shared/schema.ts.
+Current Issue: The database search logic is too simplistic. We need the LLM to not just extract basic entities, but to generate a more detailed "search plan" that specifies which database fields to search for which terms and with what logic.
+Task:
+Modify the extractEntitiesFromQuery function in server/nlq.ts and the related nlqEntitySchema in shared/schema.ts.
+The goal is for the OpenAI call to return a new structure, let's call it NLQSearchPlan, instead of just NLQEntity.
+This NLQSearchPlan should guide the database query construction more precisely.
+Guidelines for NLQSearchPlan Structure (to be added to shared/schema.ts):
+export const searchConditionSchema = z.object({
+  field: z.string(), // Actual column name from salesforceFields table
+  operator: z.enum(["ilike", "equals_ignore_case", "contains_in_array_field"]), // Extend as needed
+  value: z.union([z.string(), z.array(z.string())]),
+  // isPhrase: z.boolean().optional(), // For future: differentiate "exact phrase" from keywords
+});
+
+export const filterGroupSchema = z.object({
+  logicalOperator: z.enum(["AND", "OR"]), // How conditions within this group are combined
+  conditions: z.array(searchConditionSchema),
+});
+
+export const nlqSearchPlanSchema = z.object({
+  intent: z.enum(["find_fields", /* other intents */]).default("find_fields"),
+  targetObject: z.string().nullable().optional(), // The primary Salesforce object if specified
+  // Represents the main search criteria, typically combined with AND
+  filterGroups: z.array(filterGroupSchema), 
+  // Optional: specific data type filter
+  dataTypeFilter: searchConditionSchema.nullable().optional(), 
+  // Raw keywords for context/summary, can be derived or kept
+  rawKeywords: z.array(z.string()).default([]), 
+});
+export type NLQSearchPlan = z.infer<typeof nlqSearchPlanSchema>;
+Use code with caution.
+TypeScript
+(Lovable: You will need to add this schema definition to shared/schema.ts and update exports)
+Guidelines for Modifying extractEntitiesFromQuery in server/nlq.ts:
+Update the OpenAI Prompt:
+The prompt needs to instruct GPT-4o to populate the NLQSearchPlan structure.
+Crucial: It must be made aware of the available queryable fields in the salesforceFields table (from KB: shared/schema.ts). You don't need to list ALL fields in the prompt, but key searchable text fields like fieldLabel, fieldApiName, objectLabel, description, helpText, complianceCategory, tagIds, owners, dataType.
+The LLM should intelligently map user's conceptual terms to these fields. For example:
+"PII information" -> might suggest searching "PII" in description, complianceCategory, fieldLabel.
+"Fields about money on Opportunity" -> targetObject: "Opportunity", search "money", "currency", "amount", "revenue" in fieldLabel, description; potentially dataTypeFilter: { field: "dataType", operator: "ilike", value: "Currency" }.
+"Status fields for Cases" -> targetObject: "Case", search "status" in fieldLabel, description; potentially dataTypeFilter: { field: "dataType", operator: "ilike", value: "Picklist" }.
+Output Format Instruction: Emphasize returning the JSON in the exact NLQSearchPlan format.
+Few-Shot Examples in Prompt:
+// Example 1 for LLM Prompt:
+Query: "Show me deal size fields on Opportunity"
+// Expected LLM Output (NLQSearchPlan):
+{
+  "intent": "find_fields",
+  "targetObject": "Opportunity",
+  "filterGroups": [
+    {
+      "logicalOperator": "OR",
+      "conditions": [
+        { "field": "fieldLabel", "operator": "ilike", "value": "%deal size%" },
+        { "field": "description", "operator": "ilike", "value": "%deal size%" },
+        { "field": "fieldLabel", "operator": "ilike", "value": "%amount%" }, // LLM might infer related terms
+        { "field": "description", "operator": "ilike", "value": "%amount%" }
+      ]
+    }
+  ],
+  "dataTypeFilter": { "field": "dataType", "operator": "ilike", "value": "%Currency%" }, // LLM might infer this
+  "rawKeywords": ["deal size", "Opportunity"]
+}
+
+// Example 2 for LLM Prompt:
+Query: "PII fields on Contact"
+// Expected LLM Output (NLQSearchPlan):
+{
+  "intent": "find_fields",
+  "targetObject": "Contact",
+  "filterGroups": [
+    {
+      "logicalOperator": "OR",
+      "conditions": [
+        { "field": "fieldLabel", "operator": "ilike", "value": "%PII%" },
+        { "field": "description", "operator": "ilike", "value": "%PII%" },
+        { "field": "complianceCategory", "operator": "ilike", "value": "%PII%" },
+        { "field": "tagIds", "operator": "ilike", "value": "%PII%" }, // if tagIds is a text field storing comma-separated tags
+        // or if tagIds is an array and we have an operator for it:
+        // { "field": "tagIds", "operator": "contains_in_array_field", "value": "PII" } 
+        { "field": "description", "operator": "ilike", "value": "%sensitive data%" }
+      ]
+    }
+  ],
+  "dataTypeFilter": null,
+  "rawKeywords": ["PII", "Contact"]
+}
+Use code with caution.
+Update Function Signature and Return Type: extractEntitiesFromQuery should now return Promise<NLQSearchPlan>.
+Update Zod Parsing: Use nlqSearchPlanSchema.parse(parsed) to validate the LLM's JSON output.
+Fallback Logic: The existing fallback (simple keyword split) should now attempt to populate the NLQSearchPlan as best as possible (e.g., put all keywords into one filter group searching a few default fields like fieldLabel and description).
+Constraints:
+The LLM should not generate SQL. It generates the NLQSearchPlan JSON.
+Ensure the field names in searchConditionSchema are valid column names from salesforceFields table.
+Prioritize mapping keywords to relevant text-searchable fields.
+If tagIds is stored as a comma-separated string, ilike is appropriate. If it could be a JSON array in PG, we might need a different operator or handling in the next step. (Your current schema tagIds: text("tag_ids") implies string).

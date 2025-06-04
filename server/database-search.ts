@@ -1,6 +1,6 @@
 import { db } from "./db";
 import { salesforceFields } from "@shared/schema";
-import { NLQEntity, SalesforceField } from "@shared/schema";
+import { NLQEntity, SalesforceField, NLQSearchPlan, SearchCondition, FilterGroup } from "@shared/schema";
 import { ilike, or, and, sql } from "drizzle-orm";
 
 export async function searchSalesforceFieldsInDB(entities: NLQEntity): Promise<SalesforceField[]> {

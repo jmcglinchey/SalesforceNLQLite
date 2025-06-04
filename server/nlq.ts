@@ -1,10 +1,142 @@
 import OpenAI from "openai";
-import { NLQEntity, nlqEntitySchema } from "@shared/schema";
+import { NLQEntity, NLQSearchPlan, nlqEntitySchema, nlqSearchPlanSchema } from "@shared/schema";
 
 // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
 const openai = new OpenAI({ 
   apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY_ENV_VAR || "default_key"
 });
+
+export async function generateSearchPlan(query: string): Promise<NLQSearchPlan> {
+  try {
+    const prompt = `
+You are an expert at analyzing natural language queries about Salesforce metadata fields stored in a PostgreSQL database.
+
+Available queryable fields in the salesforceFields table:
+- fieldLabel: The display name of the field
+- fieldApiName: The API name of the field  
+- objectLabel: The Salesforce object name (Account, Contact, Opportunity, etc.)
+- description: Field description text
+- helpText: Help text for the field
+- complianceCategory: Compliance/regulatory categories (PII, GDPR, etc.)
+- tagIds: Comma-separated tags
+- owners: Field owners
+- stakeholders: Field stakeholders
+- dataType: Field data type (Text, Currency, Picklist, etc.)
+- picklistValues: Available picklist options
+- ingestedBy: Systems that populate this field
+
+Generate a structured search plan in this exact JSON format:
+
+{
+  "intent": "find_fields",
+  "targetObject": "string or null",
+  "filterGroups": [
+    {
+      "logicalOperator": "AND|OR",
+      "conditions": [
+        {
+          "field": "column_name",
+          "operator": "ilike|equals_ignore_case|contains_in_array_field",
+          "value": "%search_term%" 
+        }
+      ]
+    }
+  ],
+  "dataTypeFilter": {
+    "field": "dataType",
+    "operator": "ilike",
+    "value": "%type%"
+  } or null,
+  "rawKeywords": ["extracted", "keywords"]
+}
+
+Examples:
+
+Query: "Show me deal size fields on Opportunity"
+{
+  "intent": "find_fields",
+  "targetObject": "Opportunity",
+  "filterGroups": [
+    {
+      "logicalOperator": "OR",
+      "conditions": [
+        { "field": "fieldLabel", "operator": "ilike", "value": "%deal size%" },
+        { "field": "description", "operator": "ilike", "value": "%deal size%" },
+        { "field": "fieldLabel", "operator": "ilike", "value": "%amount%" },
+        { "field": "description", "operator": "ilike", "value": "%amount%" }
+      ]
+    }
+  ],
+  "dataTypeFilter": { "field": "dataType", "operator": "ilike", "value": "%Currency%" },
+  "rawKeywords": ["deal size", "Opportunity"]
+}
+
+Query: "PII fields on Contact"
+{
+  "intent": "find_fields",
+  "targetObject": "Contact",
+  "filterGroups": [
+    {
+      "logicalOperator": "OR",
+      "conditions": [
+        { "field": "fieldLabel", "operator": "ilike", "value": "%PII%" },
+        { "field": "description", "operator": "ilike", "value": "%PII%" },
+        { "field": "complianceCategory", "operator": "ilike", "value": "%PII%" },
+        { "field": "tagIds", "operator": "ilike", "value": "%PII%" },
+        { "field": "description", "operator": "ilike", "value": "%sensitive data%" }
+      ]
+    }
+  ],
+  "dataTypeFilter": null,
+  "rawKeywords": ["PII", "Contact"]
+}
+
+Query: "${query}"
+Return only the JSON response:`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.1,
+    });
+
+    const content = response.choices[0].message.content;
+    if (!content) {
+      throw new Error("No response from OpenAI");
+    }
+
+    const parsed = JSON.parse(content);
+    return nlqSearchPlanSchema.parse(parsed);
+  } catch (error) {
+    console.error("Error generating search plan:", error);
+    
+    // Fallback to simple search plan
+    const keywords = query
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(word => word.length > 2);
+
+    return {
+      intent: "find_fields",
+      targetObject: null,
+      filterGroups: [{
+        logicalOperator: "OR",
+        conditions: keywords.flatMap(keyword => [
+          { field: "fieldLabel", operator: "ilike", value: `%${keyword}%` },
+          { field: "description", operator: "ilike", value: `%${keyword}%` }
+        ])
+      }],
+      dataTypeFilter: null,
+      rawKeywords: keywords
+    };
+  }
+}
 
 export async function extractEntitiesFromQuery(query: string): Promise<NLQEntity> {
   try {
