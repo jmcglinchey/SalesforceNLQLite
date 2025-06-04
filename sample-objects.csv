@@ -1,0 +1,16 @@
+Label,ApiName,Description,PluralLabel,KeyPrefix,IsCustom,Tags,SharingModel
+Account,Account,Stores information about companies or organizations you do business with,Accounts,001,FALSE,"Sales,Customer Data,Core Object",ReadWrite
+Contact,Contact,Stores information about people associated with your accounts,Contacts,003,FALSE,"Sales,Customer Data,Core Object",ControlledByParent
+Opportunity,Opportunity,Represents sales deals and tracks your sales pipeline,Opportunities,006,FALSE,"Sales,Revenue,Pipeline",ReadWrite
+Lead,Lead,Represents potential customers who have expressed interest in your products,Leads,00Q,FALSE,"Sales,Marketing,Prospecting",ReadWrite
+Case,Case,Tracks customer service issues and support requests,Cases,500,FALSE,"Service,Support,Customer Success",ReadWrite
+Task,Task,Represents activities like calls emails and meetings,Tasks,00T,FALSE,"Activity,Productivity,Core Object",ControlledByParent
+Event,Event,Represents scheduled activities like meetings and appointments,Events,00U,FALSE,"Activity,Calendar,Core Object",ControlledByParent
+Campaign,Campaign,Tracks marketing campaigns and their effectiveness,Campaigns,701,FALSE,"Marketing,Campaigns,ROI",ReadWrite
+Product2,Product2,Catalog of products and services your company sells,Products,01t,FALSE,"Sales,Products,Catalog",ReadWrite
+PricebookEntry,PricebookEntry,Defines pricing for products in different price books,Pricebook Entries,01u,FALSE,"Sales,Pricing,Products",ReadWrite
+Quote,Quote,Formal proposals sent to prospects with pricing details,Quotes,0Q0,FALSE,"Sales,Quotes,Proposals",ReadWrite
+Contract,Contract,Legal agreements with customers including terms and conditions,Contracts,800,FALSE,"Sales,Legal,Agreements",ReadWrite
+Order,Order,Customer purchase orders for products and services,Orders,801,FALSE,"Sales,Orders,Fulfillment",ReadWrite
+User,User,People who can log in to your Salesforce organization,Users,005,FALSE,"Admin,Users,Security",ReadWrite
+Custom_Project__c,Custom_Project__c,Custom object to track internal projects and deliverables,Custom Projects,a00,TRUE,"Project Management,Custom,Operations",ReadWrite

@@ -141,6 +141,14 @@ export default function Home() {
               </section>
             )}
 
+            {/* Object Results */}
+            {objectResults.length > 0 && (
+              <ObjectResults 
+                results={objectResults}
+                summary={`Found ${objectResults.length} relevant object(s)`}
+              />
+            )}
+
             {/* Search Results */}
             {showResults && (
               <SearchResults 
