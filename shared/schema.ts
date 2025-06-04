@@ -137,6 +137,7 @@ export const searchResultSchema = z.object({
   isUnique: z.boolean(),
   populationPercentage: z.number().nullable(),
   referenceCount: z.number().nullable(),
+  matchConfidence: z.enum(["High", "Medium", "Low"]).nullable().optional(),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({

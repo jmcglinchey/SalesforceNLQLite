@@ -290,58 +290,114 @@ export function buildSearchSummary(plan: NLQSearchPlan, resultCount: number): st
   return `Found ${resultCount} field${resultCount !== 1 ? 's' : ''}${summary}`;
 }
 
+async function getMatchConfidence(
+  originalQuery: string,
+  searchPlan: NLQSearchPlan,
+  field: SalesforceField
+): Promise<"High" | "Medium" | "Low" | null> {
+  try {
+    const prompt = `Context: You are an AI assistant evaluating the relevance of a Salesforce field to a user's query and the derived search plan.
+Original User Query: "${originalQuery}"
+Derived Search Plan: ${JSON.stringify(searchPlan)} 
+Current Field Details:
+  - Label: "${field.fieldLabel}"
+  - API Name: "${field.fieldApiName}"
+  - Object: "${field.objectLabel}"
+  - Data Type: "${field.dataType}"
+  - Description: "${field.description || 'N/A'}"
+  - Help Text: "${field.helpText || 'N/A'}"
+  - Tags: "${field.tagIds || 'N/A'}" 
+  - Formula: ${field.formula ? "Yes" : "No"}
+
+Task: Based on the Original User Query, the Derived Search Plan, and the Current Field Details, assess how well this specific field matches the user's likely intent.
+Return ONLY one of the following confidence scores as a single word: "High", "Medium", or "Low".
+
+Guidelines for Scoring:
+- "High": Strong, direct match. Keywords from the query/plan appear in critical field attributes (Label, API Name, specific Tags). The field's object and type are highly relevant. The description clearly aligns with the query's intent. For example, if the query is about 'customer revenue on opportunities', a field named 'Opportunity.Amount' would be High.
+- "Medium": Good partial or conceptual match. Some keywords match, or keywords match in less critical attributes (Description, Help Text). The object or type might be generally relevant but not a perfect fit. The field seems related but might not be the primary answer. For example, for 'customer revenue on opportunities', a field 'Account.AnnualRevenue' might be Medium if Opportunity context is primary.
+- "Low": Weak or indirect match. Few or no keywords match directly. The field's purpose seems tangential. It might be a very broad match or related only by a common object without specific keyword relevance. For example, for 'customer revenue on opportunities', a field 'Opportunity.CloseDate' would be Low.
+
+Output Example:
+High`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.1,
+      max_tokens: 10,
+    });
+
+    const content = response.choices[0].message.content?.trim();
+    if (content === "High" || content === "Medium" || content === "Low") {
+      return content;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error("Error getting match confidence:", error);
+    return null;
+  }
+}
+
 export async function refineSearchResultsWithLLM(
   originalQuery: string,
   searchPlan: NLQSearchPlan,
   initialResults: SalesforceField[],
   maxResultsToRefine: number = 10,
   maxFieldsToReturn: number = 5
-): Promise<SalesforceField[]> {
+): Promise<Array<SalesforceField & { matchConfidence?: "High" | "Medium" | "Low" | null }>> {
   try {
     // Return immediately if no results to refine
     if (initialResults.length === 0) {
       return initialResults;
     }
 
-    // Implement scoring-based refinement for intelligent result ranking
-    const scoredResults = initialResults.map(field => {
-      let score = 0;
-      
-      // Boost score for having description and help text
-      if (field.description && field.description.length > 50) score += 3;
-      if (field.helpText && field.helpText.length > 20) score += 2;
-      
-      // Penalize legacy/deprecated indicators
-      const label = field.fieldLabel?.toLowerCase() || '';
-      const apiName = field.fieldApiName?.toLowerCase() || '';
-      if (label.includes('old') || label.includes('legacy') || label.includes('archive') ||
-          apiName.includes('old') || apiName.includes('legacy') || apiName.includes('archive')) {
-        score -= 5;
-      }
-      
-      // Boost for object relevance
-      if (searchPlan.targetObject && field.objectLabel === searchPlan.targetObject) {
-        score += 2;
-      }
-      
-      // Boost for active usage indicators
-      if (field.fieldUsageId === 'Active') score += 1;
-      if (field.populationPercentage && field.populationPercentage > 50) score += 1;
-      
-      return { field, score };
-    });
+    // Process up to maxResultsToRefine fields for confidence scoring
+    const fieldsToProcess = initialResults.slice(0, maxResultsToRefine);
     
-    // Sort by score and return top results
-    const refinedResults = scoredResults
-      .sort((a, b) => b.score - a.score)
-      .slice(0, maxFieldsToReturn)
-      .map(item => item.field);
+    // Add match confidence scores using LLM
+    const fieldsWithConfidence = await Promise.all(
+      fieldsToProcess.map(async (field) => {
+        const matchConfidence = await getMatchConfidence(originalQuery, searchPlan, field);
+        return { ...field, matchConfidence };
+      })
+    );
 
-    return refinedResults;
+    // Add remaining fields without confidence scores
+    const remainingFields = initialResults.slice(maxResultsToRefine).map(field => ({ ...field, matchConfidence: null }));
+    
+    // Combine all results
+    const allFieldsWithConfidence = [...fieldsWithConfidence, ...remainingFields];
+
+    // Sort by confidence first, then by existing scoring logic
+    const confidenceOrder = { High: 1, Medium: 2, Low: 3 };
+    
+    const sortedResults = allFieldsWithConfidence.sort((a, b) => {
+      // Primary sort: confidence level
+      const confidenceA = a.matchConfidence || 'Low';
+      const confidenceB = b.matchConfidence || 'Low';
+      const orderA = confidenceOrder[confidenceA] || 4;
+      const orderB = confidenceOrder[confidenceB] || 4;
+      
+      if (orderA !== orderB) {
+        return orderA - orderB;
+      }
+      
+      // Secondary sort: documentation quality
+      let scoreA = 0, scoreB = 0;
+      if (a.description && a.description.length > 50) scoreA += 3;
+      if (a.helpText && a.helpText.length > 20) scoreA += 2;
+      if (b.description && b.description.length > 50) scoreB += 3;
+      if (b.helpText && b.helpText.length > 20) scoreB += 2;
+      
+      return scoreB - scoreA;
+    });
+
+    return sortedResults.slice(0, maxFieldsToReturn);
 
   } catch (error) {
     console.error("Error refining search results:", error);
-    return initialResults;
+    return initialResults.map(field => ({ ...field, matchConfidence: null }));
   }
 }
 

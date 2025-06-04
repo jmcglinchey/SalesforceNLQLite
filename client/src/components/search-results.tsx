@@ -2,7 +2,7 @@ import { Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SearchResult } from "@shared/schema";
-import { truncateText, getObjectColor, getFieldTypeIcon } from "@/lib/utils";
+import { truncateText, getObjectColor, getFieldTypeIcon, getConfidenceBadgeClass } from "@/lib/utils";
 
 interface SearchResultsProps {
   results: SearchResult[];
@@ -11,6 +11,22 @@ interface SearchResultsProps {
 }
 
 export default function SearchResults({ results, summary, onFieldSelect }: SearchResultsProps) {
+  // Sort results by match confidence (High > Medium > Low > null)
+  const confidenceOrder = { High: 1, Medium: 2, Low: 3 };
+  const sortedResults = [...results].sort((a, b) => {
+    const confidenceA = a.matchConfidence || 'Low';
+    const confidenceB = b.matchConfidence || 'Low';
+    const orderA = confidenceOrder[confidenceA as keyof typeof confidenceOrder] || 4;
+    const orderB = confidenceOrder[confidenceB as keyof typeof confidenceOrder] || 4;
+    
+    if (orderA !== orderB) {
+      return orderA - orderB;
+    }
+    
+    // Secondary sort by field label
+    return a.fieldLabel.localeCompare(b.fieldLabel);
+  });
+
   return (
     <section className="mb-8">
       <div className="bg-white rounded-xl shadow-sm border border-slate-200">
@@ -25,6 +41,7 @@ export default function SearchResults({ results, summary, onFieldSelect }: Searc
           <table className="w-full">
             <thead className="bg-slate-50">
               <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Match Confidence</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Field Label</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">API Name</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Object</th>
@@ -35,8 +52,13 @@ export default function SearchResults({ results, summary, onFieldSelect }: Searc
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-slate-200">
-              {results.map((field, index) => (
+              {sortedResults.map((field, index) => (
                 <tr key={`${field.objectApiName}-${field.fieldApiName}-${index}`} className="hover:bg-slate-50 transition-colors duration-150">
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <Badge className={getConfidenceBadgeClass(field.matchConfidence)}>
+                      {field.matchConfidence || '-'}
+                    </Badge>
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-slate-900">{field.fieldLabel}</div>
                     {field.isCustom && (

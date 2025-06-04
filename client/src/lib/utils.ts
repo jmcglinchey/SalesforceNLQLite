@@ -76,3 +76,16 @@ export function getObjectColor(objectName: string): string {
   
   return colors[Math.abs(hash) % colors.length];
 }
+
+export function getConfidenceBadgeClass(confidence: string | null | undefined): string {
+  switch (confidence) {
+    case 'High':
+      return 'bg-green-100 text-green-800 border border-green-300';
+    case 'Medium':
+      return 'bg-yellow-100 text-yellow-800 border border-yellow-300';
+    case 'Low':
+      return 'bg-red-100 text-red-800 border border-red-300';
+    default:
+      return 'bg-slate-100 text-slate-500 border border-slate-300';
+  }
+}
