@@ -254,6 +254,26 @@ Query: "How much revenue did we make from the Acme deal?"
   "rawKeywords": ["how much", "revenue", "Acme", "deal"]
 }
 
+Query: "How do I know when a deal was closed?"
+{
+  "intent": "find_fields",
+  "targetObject": "Opportunity",
+  "filterGroups": [
+    {
+      "logicalOperator": "OR", 
+      "conditions": [
+        { "field": "fieldLabel", "operator": "ilike", "value": "%close%" },
+        { "field": "fieldLabel", "operator": "ilike", "value": "%closed%" },
+        { "field": "fieldLabel", "operator": "ilike", "value": "%won date%" },
+        { "field": "description", "operator": "ilike", "value": "%close date%" },
+        { "field": "description", "operator": "ilike", "value": "%when the deal closed%" }
+      ]
+    }
+  ],
+  "dataTypeFilter": { "field": "dataType", "operator": "ilike", "value": "%Date%" },
+  "rawKeywords": ["when", "deal", "closed", "close", "won"]
+}
+
 Query: "When is the project deadline for case 00123?"
 {
   "intent": "find_fields",
