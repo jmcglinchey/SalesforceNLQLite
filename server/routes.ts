@@ -125,7 +125,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const csvData: any[] = [];
-      const stream = Readable.from(req.file.buffer);
+      // Remove BOM if present
+      let buffer = req.file.buffer;
+      if (buffer.length >= 3 && buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF) {
+        buffer = buffer.slice(3);
+      }
+      const stream = Readable.from(buffer);
       
       // Parse CSV data
       await new Promise<void>((resolve, reject) => {
@@ -146,14 +151,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "CSV file is empty" });
       }
 
+      console.log(`Parsed ${csvData.length} rows from CSV`);
+      console.log("First few rows:", csvData.slice(0, 3));
+
       // Transform CSV data to match our expanded schema
       const salesforceFields = csvData.map((row) => {
-        // Core field information
-        const fieldLabel = row.Label || '';
-        const fieldApiName = row.Name || '';
-        const objectLabel = row.ParentDisplayName || '';
-        const objectApiName = row.ParentDisplayName || ''; // Using same as label for now
-        const dataType = row.Type || 'text';
+        // Core field information - trim whitespace and handle empty values
+        const fieldLabel = (row.Label || '').trim();
+        const fieldApiName = (row.Name || '').trim();
+        const objectLabel = (row.ParentDisplayName || '').trim();
+        const objectApiName = (row.ParentDisplayName || '').trim(); // Using same as label for now
+        const dataType = (row.Type || 'text').trim();
         
         // Field metadata
         const picklistValues = row.PicklistValues || null;
@@ -232,7 +240,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           populatedAndTotalRecords,
           sourceUrl,
         };
-      }).filter(field => field.fieldLabel && field.fieldApiName); // Only include valid fields
+      }).filter(field => {
+        const isValid = field.fieldLabel && field.fieldApiName && field.objectLabel;
+        if (!isValid && field.fieldLabel) {
+          console.log("Filtered out row:", { 
+            fieldLabel: field.fieldLabel, 
+            fieldApiName: field.fieldApiName, 
+            objectLabel: field.objectLabel 
+          });
+        }
+        return isValid;
+      }); // Only include valid fields with all required data
+
+      console.log(`Processing ${salesforceFields.length} valid fields out of ${csvData.length} total rows`);
 
       // Clear existing data and insert new data
       await storage.clearSalesforceFields();
