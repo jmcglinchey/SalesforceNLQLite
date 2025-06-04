@@ -74,7 +74,21 @@ CRITICAL: User Lookup / Ownership Inference Rules:
 
 CRITICAL: Object Search Intent Rules:
 1. If the query explicitly asks about an object (e.g., "what is the Account object?", "tell me about Opportunities", "details for Case object"), set 'intent' to "find_objects".
-2. If the query asks for objects related to a concept (e.g., "what objects are used for sales?", "show me objects for customer support"), set 'intent' to "find_objects" and use the concept (e.g., "sales", "customer support") as keywords in 'filterGroups' targeting 'objectLabel', 'description', and 'tags' of the salesforceObjects table.
+2. If the query asks for objects related to a general business concept, use the following mappings to guide your search term generation for 'objectLabel', 'description', and 'tags' within the 'salesforceObjects' table. Prioritize matching the 'objectLabel' directly with the target object name.
+   - For "business", "company", "organization", "client", "customer entity", "firm", "enterprise": Strongly target the 'Account' object. Add keywords like "account", "company", "organization", "client" to search conditions.
+   - For "deal", "sale", "pipeline", "revenue opportunity", "sales agreement", "potential sale": Strongly target the 'Opportunity' object. Add keywords like "opportunity", "deal", "sale", "pipeline".
+   - For "ticket", "issue", "support request", "problem", "customer complaint", "service request", "help desk": Strongly target the 'Case' object. Add keywords like "case", "ticket", "issue", "support".
+   - For "person", "individual", "people", "contact person" (when not implying a User): Strongly target the 'Contact' object. Add keywords like "contact", "person", "individual".
+   - For "potential customer", "prospect", "new inquiry", "sales lead", "unqualified prospect": Strongly target the 'Lead' object. Add keywords like "lead", "prospect", "inquiry".
+   - For "product", "service", "item", "offering", "catalog item", "what we sell": Strongly target the 'Product2' (Product) object. Add "product", "service", "item".
+   - For "marketing effort", "promotional activity", "outreach", "ad campaign": Strongly target the 'Campaign' object. Add "campaign", "marketing", "promotion".
+   - For "agreement", "legal document", "SLA": Strongly target the 'Contract' object. Add "contract", "agreement".
+   - For "purchase order", "customer order", "sales order": Strongly target the 'Order' object. Add "order", "purchase".
+   - For "quote", "sales proposal", "bid", "estimate": Strongly target the 'Quote' object. Add "quote", "proposal".
+   - For "staff member", "employee", "internal user", "system user": Strongly target the 'User' object. Add "user", "employee", "staff".
+   - For "meeting", "appointment", "calendar entry": Strongly target the 'Event' object. Add "event", "meeting", "appointment".
+   - For "task", "to-do", "action item": Strongly target the 'Task' object. Add "task", "activity", "to-do".
+   If the query uses these terms, generate 'filterGroups' conditions that include these keywords for 'objectLabel', 'description', and 'tags' fields of the salesforceObjects table, with a preference for matching 'objectLabel'.
 3. For "find_objects" intent, 'dataTypeFilter' should typically be null.
 4. 'targetObject' in the plan can still be used to specify a particular object name if the query is "tell me about the Account object". In this case, 'filterGroups' might be minimal or focus on the 'objectLabel' or 'objectApiName' equaling this target.
 5. If the query is ambiguous between finding fields on an object vs. finding the object itself (e.g., "Account information"), prioritize "find_fields" intent by default unless specific object-describing language is used ("what is...", "tell me about the object...").
@@ -332,6 +346,27 @@ Query: "Tell me about the Account object"
   ],
   "dataTypeFilter": null,
   "rawKeywords": ["tell me about", "Account", "object"]
+}
+
+Query: "What represents a business?"
+{
+  "intent": "find_objects",
+  "targetObject": null,
+  "filterGroups": [
+    {
+      "logicalOperator": "OR",
+      "conditions": [
+        { "field": "objectLabel", "operator": "ilike", "value": "%Account%" },
+        { "field": "description", "operator": "ilike", "value": "%business%" },
+        { "field": "description", "operator": "ilike", "value": "%company%" },
+        { "field": "description", "operator": "ilike", "value": "%organization%" },
+        { "field": "tags", "operator": "ilike", "value": "%business%" },
+        { "field": "tags", "operator": "ilike", "value": "%company%" }
+      ]
+    }
+  ],
+  "dataTypeFilter": null,
+  "rawKeywords": ["what represents", "business"]
 }
 
 Query: "What Salesforce objects are related to sales and marketing?"

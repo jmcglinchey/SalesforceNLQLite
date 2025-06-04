@@ -1,0 +1,65 @@
+"The NLQ application needs to be significantly better at understanding common Salesforce business terminology when users are searching for objects (intent: `find_objects`). For instance, a query like 'What represents a business?' should strongly suggest the 'Account' object.
+
+**1. Modify `server/nlq.ts` - Update LLM Prompt in `generateSearchPlan` Function:**
+
+*   **Task:** Enhance the "CRITICAL: Object Search Intent Rules" section within the LLM prompt. Specifically, rule #2 needs to be more explicit by incorporating a list of common business terms and their corresponding Salesforce objects. This will guide the LLM to generate more relevant `filterGroups` when the `intent` is `find_objects`.
+*   **Guidelines for Updating the LLM Prompt:**
+    *   Locate the "CRITICAL: Object Search Intent Rules" section.
+    *   **Modify Rule #2 within "CRITICAL: Object Search Intent Rules":**
+        Replace the existing rule #2 with the following more detailed instruction, which includes the business term mappings:
+        ```
+        2. If the query asks for objects related to a general business concept, use the following mappings to guide your search term generation for 'objectLabel', 'description', and 'tags' within the 'salesforceObjects' table. Prioritize matching the 'objectLabel' directly with the target object name.
+           - For "business", "company", "organization", "client", "customer entity", "firm", "enterprise": Strongly target the 'Account' object. Add keywords like "account", "company", "organization", "client" to search conditions.
+           - For "deal", "sale", "pipeline", "revenue opportunity", "sales agreement", "potential sale": Strongly target the 'Opportunity' object. Add keywords like "opportunity", "deal", "sale", "pipeline".
+           - For "ticket", "issue", "support request", "problem", "customer complaint", "service request", "help desk": Strongly target the 'Case' object. Add keywords like "case", "ticket", "issue", "support".
+           - For "person", "individual", "people", "contact person" (when not implying a User): Strongly target the 'Contact' object. Add keywords like "contact", "person", "individual".
+           - For "potential customer", "prospect", "new inquiry", "sales lead", "unqualified prospect": Strongly target the 'Lead' object. Add keywords like "lead", "prospect", "inquiry".
+           - For "product", "service", "item", "offering", "catalog item", "what we sell": Strongly target the 'Product2' (Product) object. Add "product", "service", "item".
+           - For "marketing effort", "promotional activity", "outreach", "ad campaign": Strongly target the 'Campaign' object. Add "campaign", "marketing", "promotion".
+           - For "agreement", "legal document", "SLA": Strongly target the 'Contract' object. Add "contract", "agreement".
+           - For "purchase order", "customer order", "sales order": Strongly target the 'Order' object. Add "order", "purchase".
+           - For "quote", "sales proposal", "bid", "estimate": Strongly target the 'Quote' object. Add "quote", "proposal".
+           - For "staff member", "employee", "internal user", "system user": Strongly target the 'User' object. Add "user", "employee", "staff".
+           - For "meeting", "appointment", "calendar entry": Strongly target the 'Event' object. Add "event", "meeting", "appointment".
+           - For "task", "to-do", "action item": Strongly target the 'Task' object. Add "task", "activity", "to-do".
+           If the query uses these terms, generate 'filterGroups' conditions that include these keywords for 'objectLabel', 'description', and 'tags' fields of the salesforceObjects table, with a preference for matching 'objectLabel'.
+        ```
+    *   **Add a New Example for Conceptual Object Search:**
+        Add the following JSON example to the existing list for the LLM. This specifically demonstrates the desired behavior for a query like "What represents a business?".
+        ```json
+        Query: "What represents a business?"
+        {
+          "intent": "find_objects",
+          "targetObject": null, // LLM infers concept, not direct targetObject
+          "filterGroups": [
+            {
+              "logicalOperator": "OR",
+              "conditions": [
+                { "field": "objectLabel", "operator": "ilike", "value": "%Account%" }, // Strong preference from "business"
+                { "field": "description", "operator": "ilike", "value": "%business%" },
+                { "field": "description", "operator": "ilike", "value": "%company%" },
+                { "field": "description", "operator": "ilike", "value": "%organization%" },
+                { "field": "tags", "operator": "ilike", "value": "%business%" },
+                { "field": "tags", "operator": "ilike", "value": "%company%" }
+              ]
+            }
+          ],
+          "dataTypeFilter": null,
+          "rawKeywords": ["what represents", "business"]
+        }
+        ```
+    *   **Reinforce Distinction:** Ensure the LLM prompt still clearly distinguishes that when `intent` is `find_objects`, the `filterGroups.conditions.field` refers to columns in the `salesforceObjects` table (e.g., `objectLabel`, `description`, `tags`), and when `intent` is `find_fields`, it refers to columns in the `salesforceFields` table.
+
+**2. No Changes Expected For (Verify if necessary):**
+
+*   **`server/database-search.ts` (`searchSalesforceObjectsInDB` function):** This function should already be capable of handling the `NLQSearchPlan` generated by the improved LLM. The `filterGroups` will now contain more targeted keywords for object labels, descriptions, and tags.
+*   **`shared/schema.ts`:** No schema changes are needed for this specific improvement.
+*   **Frontend Components:** No frontend changes are directly needed, as this is about improving the backend's understanding and search plan generation.
+
+**Key for Success:**
+
+*   The clarity and explicitness of the updated Rule #2 in "CRITICAL: Object Search Intent Rules" and the new example are paramount. The LLM needs direct instruction on how to map these common business terms to object search strategies.
+*   The LLM should still use the `rawKeywords` from the query to supplement these targeted searches, ensuring broadness if the specific mapping doesn't yield results.
+
+After implementing these changes, test with queries like "What represents a business?", "Show me objects for deals", "Which object tracks customer issues?", etc. You should see more relevant objects returned. The `ObjectResults` component on the frontend should then display these improved results.
+"
