@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { extractEntitiesFromQuery, buildSearchSummary } from "./nlq";
-import { searchSalesforceFields, testBigQueryConnection } from "./bigquery";
+import { searchSalesforceFieldsInDB, testDatabaseConnection, getSalesforceFieldCount } from "./database-search";
 import { queryRequestSchema, insertSalesforceFieldSchema } from "@shared/schema";
 import { z } from "zod";
 import multer from "multer";
@@ -29,10 +29,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Health check endpoint
   app.get("/api/health", async (req, res) => {
     try {
-      const bigQueryHealth = await testBigQueryConnection();
+      const dbHealth = await testDatabaseConnection();
+      const fieldCount = await getSalesforceFieldCount();
       res.json({ 
         status: "ok", 
-        bigquery: bigQueryHealth ? "connected" : "disconnected",
+        database: dbHealth ? "connected" : "disconnected",
+        fieldCount,
         timestamp: new Date().toISOString()
       });
     } catch (error) {
@@ -55,8 +57,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Extract entities using OpenAI
       const entities = await extractEntitiesFromQuery(query);
       
-      // Search BigQuery for matching fields
-      const results = await searchSalesforceFields(entities);
+      // Search database for matching fields
+      const results = await searchSalesforceFieldsInDB(entities);
       
       // Calculate processing time
       const processingTime = Date.now() - startTime;
@@ -220,15 +222,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get upload status
   app.get("/api/upload-status", async (req, res) => {
     try {
-      // Get count of records in database
-      const recentQueries = await storage.getRecentQueries(1);
+      const fieldCount = await getSalesforceFieldCount();
       res.json({
-        hasData: true, // We'll implement a proper count later
-        message: "Database is ready for queries"
+        hasData: fieldCount > 0,
+        fieldCount,
+        message: fieldCount > 0 ? `Database contains ${fieldCount} fields` : "No data uploaded yet"
       });
     } catch (error) {
       res.json({
         hasData: false,
+        fieldCount: 0,
         message: "No data uploaded yet"
       });
     }

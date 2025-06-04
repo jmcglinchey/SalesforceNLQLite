@@ -1,12 +1,14 @@
-import { useState } from "react";
-import { Search } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Search, Database } from "lucide-react";
 import QueryInput from "@/components/query-input";
 import SearchResults from "@/components/search-results";
 import FieldDetailsModal from "@/components/field-details-modal";
 import ExampleQueries from "@/components/example-queries";
 import LoadingState from "@/components/loading-state";
 import EmptyState from "@/components/empty-state";
+import CSVUpload from "@/components/csv-upload";
 import { SearchResult } from "@shared/schema";
+import { useQuery } from "@tanstack/react-query";
 
 export default function Home() {
   const [selectedField, setSelectedField] = useState<SearchResult | null>(null);
