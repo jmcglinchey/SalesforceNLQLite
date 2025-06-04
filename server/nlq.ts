@@ -41,6 +41,30 @@ CRITICAL: Object Inference Rules for targetObject (MUST follow these rules):
 
 4. Only set targetObject: null if truly no business context can be inferred
 
+CRITICAL: DataType Inference Rules based on Keywords (for populating 'dataTypeFilter'):
+Your primary goal here is to infer the most probable Salesforce field data type based on common language patterns in the user's query. Set 'dataTypeFilter.value' in the JSON plan accordingly. This inference is secondary to any explicit data type mentioned by the user (e.g., "show me all DATE fields").
+
+1.  Monetary Terms: For keywords like "money", "cost", "price", "revenue", "amount", "value", "budget", "salary", "financial", "fee", "charge", infer 'dataTypeFilter.value' as "%Currency%".
+2.  Temporal Terms: For "when", "date", "day", "month", "year", "time", "schedule", "deadline", "timestamp", "period", "duration", infer "%Date%" (matches "Date" or "Date/Time").
+3.  Numerical/Count Terms: For "how many", "count", "quantity", "number of", "total", "sum" (when implying a count or simple number), infer "%Number%".
+4.  Percentage Terms: For "what percent", "percentage", "rate", "ratio", "proportion", infer "%Percent%".
+5.  Boolean/Checkbox Terms: For "is it true", "yes/no", "true/false", "active?", "enabled?", "flag", "checked?", "valid?", infer "Checkbox".
+6.  Location/Address Terms: For "where", "location", "address", "city", "state", "zip", "country", "street", infer "%Address%" or "%Location%" or "%Text%".
+7.  Email Terms: For "email", "email address", "e-mail", infer "%Email%".
+8.  Phone Terms: For "phone", "phone number", "contact number", "fax", infer "%Phone%".
+9.  URL/Link Terms: For "website", "URL", "link", "web page", "site", infer "%URL%".
+10. Free-form Text Terms: If the query implies looking for descriptive text, notes, or long content (e.g., "description of", "notes about", "details for"), consider inferring "%Text%", "%TextArea%", or "%LongTextArea%".
+11. Selection/Choice Terms: For "option", "choice", "status", "type" (as a selection), "category", "list", "dropdown", infer "%Picklist%" or "%MultiSelectPicklist%".
+12. Formula/Calculation Terms: For "calculated", "formula", "derived", "computed", infer "%Formula%".
+13. ID/Identifier Terms: For "ID", "identifier", "record ID", "key", infer "%ID%" or "%Text%".
+14. Image/Picture Terms: For "picture", "image", "photo", "logo", consider "%URL%" (for image links) or "%RichText%" (if it implies embedded images).
+
+General Guidelines for DataType Inference:
+-   The 'dataTypeFilter.field' should always be "dataType".
+-   The 'dataTypeFilter.operator' should usually be "ilike".
+-   If a query implies multiple data types, choose the most dominant or primary one for the 'dataTypeFilter'. If unsure, or if no strong type is implied, set 'dataTypeFilter' to null.
+-   These rules should complement, not replace, keyword searching in 'fieldLabel' and 'description' via 'filterGroups'.
+
 CRITICAL: User Lookup / Ownership Inference Rules:
 1. When queries contain terms like "who", "owner", "manager", "responsible for", "created by", "modified by", "assigned to", or "my" (when referring to owned records):
    a. Set 'dataTypeFilter' to: { "field": "dataType", "operator": "ilike", "value": "%Lookup(User)%" }
@@ -209,6 +233,96 @@ Query: "Which user created this contact?"
   ],
   "dataTypeFilter": { "field": "dataType", "operator": "ilike", "value": "%Lookup(User)%" },
   "rawKeywords": ["user", "created", "contact"]
+}
+
+Query: "How much revenue did we make from the Acme deal?"
+{
+  "intent": "find_fields",
+  "targetObject": "Opportunity",
+  "filterGroups": [
+    {
+      "logicalOperator": "OR",
+      "conditions": [
+        { "field": "fieldLabel", "operator": "ilike", "value": "%revenue%" },
+        { "field": "fieldLabel", "operator": "ilike", "value": "%amount%" },
+        { "field": "description", "operator": "ilike", "value": "%revenue%" },
+        { "field": "fieldLabel", "operator": "ilike", "value": "%Acme%" }
+      ]
+    }
+  ],
+  "dataTypeFilter": { "field": "dataType", "operator": "ilike", "value": "%Currency%" },
+  "rawKeywords": ["how much", "revenue", "Acme", "deal"]
+}
+
+Query: "When is the project deadline for case 00123?"
+{
+  "intent": "find_fields",
+  "targetObject": "Case",
+  "filterGroups": [
+    {
+      "logicalOperator": "OR",
+      "conditions": [
+        { "field": "fieldLabel", "operator": "ilike", "value": "%deadline%" },
+        { "field": "fieldLabel", "operator": "ilike", "value": "%project end%" },
+        { "field": "description", "operator": "ilike", "value": "%deadline%" },
+        { "field": "fieldLabel", "operator": "ilike", "value": "%00123%" }
+      ]
+    }
+  ],
+  "dataTypeFilter": { "field": "dataType", "operator": "ilike", "value": "%Date%" },
+  "rawKeywords": ["when", "project deadline", "case 00123"]
+}
+
+Query: "Is the high priority contact active?"
+{
+  "intent": "find_fields",
+  "targetObject": "Contact",
+  "filterGroups": [
+    {
+      "logicalOperator": "AND",
+      "conditions": [
+        { "field": "fieldLabel", "operator": "ilike", "value": "%active%" },
+        { "field": "fieldLabel", "operator": "ilike", "value": "%high priority%" }
+      ]
+    }
+  ],
+  "dataTypeFilter": { "field": "dataType", "operator": "ilike", "value": "Checkbox" },
+  "rawKeywords": ["high priority", "contact", "active"]
+}
+
+Query: "What are the status options for leads?"
+{
+  "intent": "find_fields",
+  "targetObject": "Lead",
+  "filterGroups": [
+    {
+      "logicalOperator": "OR",
+      "conditions": [
+        { "field": "fieldLabel", "operator": "ilike", "value": "%status%" },
+        { "field": "description", "operator": "ilike", "value": "%status options%" }
+      ]
+    }
+  ],
+  "dataTypeFilter": { "field": "dataType", "operator": "ilike", "value": "%Picklist%" },
+  "rawKeywords": ["status", "options", "leads"]
+}
+
+Query: "Show address for customer Alpha Corp"
+{
+  "intent": "find_fields",
+  "targetObject": "Account",
+  "filterGroups": [
+    {
+      "logicalOperator": "OR",
+      "conditions": [
+        { "field": "fieldLabel", "operator": "ilike", "value": "%address%" },
+        { "field": "fieldLabel", "operator": "ilike", "value": "%location%" },
+        { "field": "fieldLabel", "operator": "ilike", "value": "%Alpha Corp%" }
+      ]
+    }
+  ],
+  "dataTypeFilter": { "field": "dataType", "operator": "ilike", "value": "%Address%" },
+  "rawKeywords": ["address", "customer", "Alpha Corp"]
 }
 
 Query: "${query}"

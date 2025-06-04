@@ -1,0 +1,148 @@
+**Prompt for Replit:**
+
+"We need to significantly enhance the intelligence of our Salesforce NLQ application by teaching the `generateSearchPlan` function in `server/nlq.ts` to infer appropriate `dataTypeFilter` values based on common keywords and question patterns. This will help narrow down search results to the most relevant field types.
+
+**1. Modify `server/nlq.ts` - `generateSearchPlan` Function:**
+
+*   **Task:** Update the main system prompt provided to the OpenAI LLM within the `generateSearchPlan` function. You will add a new critical section for "DataType Inference Rules based on Keywords" and provide several new examples demonstrating these inferences.
+*   **Guidelines for Updating the LLM Prompt:**
+    *   **Locate the Existing Critical Rules:** Find the sections like "CRITICAL: Object Inference Rules" and "CRITICAL: User Lookup / Ownership Inference Rules".
+    *   **Insert New DataType Inference Rules Section:** Add the following new section *before* the "CRITICAL: Object Inference Rules" (or in a similarly prominent position early in the rule set):
+        ```
+        CRITICAL: DataType Inference Rules based on Keywords (for populating 'dataTypeFilter'):
+        Your primary goal here is to infer the most probable Salesforce field data type based on common language patterns in the user's query. Set 'dataTypeFilter.value' in the JSON plan accordingly. This inference is secondary to any explicit data type mentioned by the user (e.g., "show me all DATE fields").
+
+        1.  Monetary Terms: For keywords like "money", "cost", "price", "revenue", "amount", "value", "budget", "salary", "financial", "fee", "charge", infer 'dataTypeFilter.value' as "%Currency%".
+        2.  Temporal Terms: For "when", "date", "day", "month", "year", "time", "schedule", "deadline", "timestamp", "period", "duration", infer "%Date%" or "%DateTime%".
+        3.  Numerical/Count Terms: For "how many", "count", "quantity", "number of", "total", "sum" (when implying a count or simple number), infer "%Number%".
+        4.  Percentage Terms: For "what percent", "percentage", "rate", "ratio", "proportion", infer "%Percent%".
+        5.  Boolean/Checkbox Terms: For "is it true", "yes/no", "true/false", "active?", "enabled?", "flag", "checked?", "valid?", infer "%Checkbox%".
+        6.  Location/Address Terms: For "where", "location", "address", "city", "state", "zip", "country", "street", infer "%Address%" or "%Location%" or "%Text%".
+        7.  Email Terms: For "email", "email address", "e-mail", infer "%Email%".
+        8.  Phone Terms: For "phone", "phone number", "contact number", "fax", infer "%Phone%".
+        9.  URL/Link Terms: For "website", "URL", "link", "web page", "site", infer "%URL%".
+        10. Free-form Text Terms: If the query implies looking for descriptive text, notes, or long content (e.g., "description of", "notes about", "details for"), consider inferring "%Text%", "%TextArea%", or "%LongTextArea%".
+        11. Selection/Choice Terms: For "option", "choice", "status", "type" (as a selection), "category", "list", "dropdown", infer "%Picklist%" or "%MultiSelectPicklist%".
+        12. Formula/Calculation Terms: For "calculated", "formula", "derived", "computed", infer "%Formula%".
+        13. ID/Identifier Terms: For "ID", "identifier", "record ID", "key", infer "%ID%" or "%Text%".
+        14. Image/Picture Terms: For "picture", "image", "photo", "logo", consider "%URL%" (for image links) or "%RichText%" (if it implies embedded images).
+
+        General Guidelines for DataType Inference:
+        -   The 'dataTypeFilter.field' should always be "dataType".
+        -   The 'dataTypeFilter.operator' should usually be "ilike".
+        -   If a query implies multiple data types, choose the most dominant or primary one for the 'dataTypeFilter'. If unsure, or if no strong type is implied, set 'dataTypeFilter' to null.
+        -   These rules should complement, not replace, keyword searching in 'fieldLabel' and 'description' via 'filterGroups'.
+        ```
+    *   **Add New Examples to the LLM Prompt:** Integrate these new examples into the existing list of examples for the LLM. Ensure the `value` in `dataTypeFilter` matches the potential string patterns in your `salesforceFields.dataType` column (e.g., if your DB stores "Date/Time" instead of "DateTime", adjust the example's `value`).
+
+        ```json
+        Query: "How much revenue did we make from the Acme deal?"
+        {
+          "intent": "find_fields",
+          "targetObject": "Opportunity", // "deal" and "revenue" point to Opportunity
+          "filterGroups": [
+            {
+              "logicalOperator": "OR",
+              "conditions": [
+                { "field": "fieldLabel", "operator": "ilike", "value": "%revenue%" },
+                { "field": "fieldLabel", "operator": "ilike", "value": "%amount%" },
+                { "field": "description", "operator": "ilike", "value": "%revenue%" },
+                { "field": "fieldLabel", "operator": "ilike", "value": "%Acme%" }
+              ]
+            }
+          ],
+          "dataTypeFilter": { "field": "dataType", "operator": "ilike", "value": "%Currency%" },
+          "rawKeywords": ["how much", "revenue", "Acme", "deal"]
+        }
+
+        Query: "When is the project deadline for case 00123?"
+        {
+          "intent": "find_fields",
+          "targetObject": "Case", // "case"
+          "filterGroups": [
+            {
+              "logicalOperator": "OR",
+              "conditions": [
+                { "field": "fieldLabel", "operator": "ilike", "value": "%deadline%" },
+                { "field": "fieldLabel", "operator": "ilike", "value": "%project end%" },
+                { "field": "description", "operator": "ilike", "value": "%deadline%" },
+                { "field": "fieldLabel", "operator": "ilike", "value": "%00123%" }
+              ]
+            }
+          ],
+          "dataTypeFilter": { "field": "dataType", "operator": "ilike", "value": "%Date%" }, // "When" implies Date or DateTime
+          "rawKeywords": ["when", "project deadline", "case 00123"]
+        }
+
+        Query: "Is the high priority contact active?"
+        {
+          "intent": "find_fields",
+          "targetObject": "Contact",
+          "filterGroups": [
+            {
+              "logicalOperator": "AND",
+              "conditions": [
+                { "field": "fieldLabel", "operator": "ilike", "value": "%active%" },
+                { "field": "fieldLabel", "operator": "ilike", "value": "%high priority%" }
+              ]
+            }
+          ],
+          "dataTypeFilter": { "field": "dataType", "operator": "ilike", "value": "%Checkbox%" }, // "active?" implies a boolean/checkbox
+          "rawKeywords": ["high priority", "contact", "active"]
+        }
+
+        Query: "What are the status options for leads?"
+        {
+          "intent": "find_fields",
+          "targetObject": "Lead",
+          "filterGroups": [
+            {
+              "logicalOperator": "OR",
+              "conditions": [
+                { "field": "fieldLabel", "operator": "ilike", "value": "%status%" },
+                { "field": "description", "operator": "ilike", "value": "%status options%" }
+              ]
+            }
+          ],
+          "dataTypeFilter": { "field": "dataType", "operator": "ilike", "value": "%Picklist%" }, // "options" and "status" often relate to Picklists
+          "rawKeywords": ["status", "options", "leads"]
+        }
+
+        Query: "Show address for customer Alpha Corp"
+        {
+          "intent": "find_fields",
+          "targetObject": "Account",
+          "filterGroups": [
+            {
+              "logicalOperator": "OR",
+              "conditions": [
+                { "field": "fieldLabel", "operator": "ilike", "value": "%address%" },
+                { "field": "fieldLabel", "operator": "ilike", "value": "%location%" },
+                { "field": "fieldLabel", "operator": "ilike", "value": "%Alpha Corp%" }
+              ]
+            }
+          ],
+          "dataTypeFilter": { "field": "dataType", "operator": "ilike", "value": "%Address%" }, // "address" implies compound Address type or similar
+          "rawKeywords": ["address", "customer", "Alpha Corp"]
+        }
+        ```
+    *   **Review and Refine:** Ensure the overall LLM prompt remains coherent and the new rules/examples integrate smoothly with existing ones (like User Lookup inference). The LLM should understand the precedence: explicit user type > inferred type from keywords > no type filter.
+
+**2. Verify `server/database-search.ts` - `searchSalesforceFieldsInDB` Function:**
+
+*   **Task:** No direct code changes are anticipated here. The existing logic for handling `plan.dataTypeFilter` should work correctly *as long as* the `value` (e.g., `"%Currency%"`, `"%Date%"`) provided by the LLM accurately matches the string patterns present in your `salesforceFields.dataType` column.
+*   **Verification Point:** Double-check how data types are stored in your database. For example, if Salesforce "Date/Time" fields are stored as `"DateTime"` in your DB, the LLM inference and `dataTypeFilter.value` should align with `"DateTime"`.
+
+**3. Verify `shared/schema.ts` and `test-upload.csv`:**
+
+*   **Task:** Confirm that the `dataType` field in `salesforceFields` schema and the `Type` column in your `test-upload.csv` (or actual Salesforce export) contain values that can be matched by these `ilike` patterns (e.g., "Currency", "Date", "DateTime", "Number", "Percent", "Checkbox", "Address", "Email", "Phone", "URL", "Text", "Picklist", "Formula", "ID").
+*   **Example:** If your CSV has "Date/Time" for a date-time field, the LLM rule for temporal terms should ideally produce `"%Date/Time%"` or the database query should be robust enough to catch `"%Date%"` or `"%DateTime%"` if they are substrings. Using `ilike` with wildcards (`%`) helps, but consistency is key.
+
+**Constraints & Key Considerations:**
+
+*   **Database `dataType` String Consistency:** The effectiveness of this feature hinges on how accurately the `dataTypeFilter.value` (e.g., `"%Currency%"`) from the LLM matches the actual string values in your `salesforceFields.dataType` column.
+*   **LLM Prompt Complexity:** The prompt for `generateSearchPlan` is becoming more complex. Monitor its performance and clarity. Too many rules could potentially confuse the LLM or lead to less predictable behavior.
+*   **Specificity vs. Generality:** The `ilike "%Value%"` approach is good for catching variations (e.g., "Date", "DateTime").
+*   **Testing:** Thoroughly test with a variety of queries to ensure the new inferences are working as expected and not causing incorrect filtering for other query types.
+
+This expanded set of rules and examples should make your NLQ significantly more adept at understanding user intent related to common data types. Good luck!"
