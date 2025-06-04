@@ -212,9 +212,12 @@ export default function CSVUpload({ onUploadComplete }: CSVUploadProps) {
         <div className="mt-6 p-4 bg-slate-50 rounded-lg">
           <h4 className="text-sm font-medium text-slate-900 mb-2">Expected CSV Format:</h4>
           <div className="text-xs text-slate-600 space-y-1">
-            <p><strong>Required columns:</strong> fieldLabel, fieldApiName, objectLabel, objectApiName, dataType</p>
-            <p><strong>Optional columns:</strong> description, helpText, formula, picklistValues, tags, isRequired, isCustom</p>
-            <p><strong>Example:</strong> fieldLabel,fieldApiName,objectLabel,objectApiName,dataType,description</p>
+            <p><strong>Required columns:</strong> Label, Name, ParentDisplayName, Type</p>
+            <p><strong>Optional columns:</strong> Description, HelpText, Formula, PicklistValues, Required, Custom, ComplianceCategory, TagIds</p>
+            <p><strong>Example header:</strong> Label,ParentDisplayName,Name,Type,Description,HelpText</p>
+            <p className="text-xs text-slate-500 mt-2">
+              Your Salesforce metadata export should work directly with this format.
+            </p>
           </div>
         </div>
       </CardContent>

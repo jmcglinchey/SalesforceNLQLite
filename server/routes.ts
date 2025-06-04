@@ -148,41 +148,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Transform CSV data to match our schema
       const salesforceFields = csvData.map((row) => {
-        // Handle different possible CSV column names
-        const fieldLabel = row.fieldLabel || row.FieldLabel || row['Field Label'] || row.label || '';
-        const fieldApiName = row.fieldApiName || row.FieldApiName || row['Field API Name'] || row.apiName || '';
-        const objectLabel = row.objectLabel || row.ObjectLabel || row['Object Label'] || row.object || '';
-        const objectApiName = row.objectApiName || row.ObjectApiName || row['Object API Name'] || row.objectApi || '';
-        const dataType = row.dataType || row.DataType || row['Data Type'] || row.type || 'text';
-        const description = row.description || row.Description || '';
-        const helpText = row.helpText || row.HelpText || row['Help Text'] || '';
-        const formula = row.formula || row.Formula || '';
-        const isRequired = row.isRequired === 'true' || row.IsRequired === 'true' || row.required === 'true';
-        const isCustom = row.isCustom === 'true' || row.IsCustom === 'true' || row.custom === 'true';
+        // Handle your specific CSV column names
+        const fieldLabel = row.Label || row.fieldLabel || '';
+        const fieldApiName = row.Name || row.fieldApiName || '';
+        const objectLabel = row.ParentDisplayName || row.objectLabel || '';
+        const objectApiName = row.ParentDisplayName || row.objectApiName || ''; // Using same as label for now
+        const dataType = row.Type || row.dataType || 'text';
+        const description = row.Description || row.description || '';
+        const helpText = row.HelpText || row.helpText || '';
+        const formula = row.Formula || row.formula || '';
+        const isRequired = row.Required === 'TRUE' || row.Required === 'true' || row.isRequired === 'true';
+        const isCustom = row.Custom === 'TRUE' || row.Custom === 'true' || row.isCustom === 'true';
 
         // Parse picklist values if they exist
         let picklistValues = null;
-        const picklistString = row.picklistValues || row.PicklistValues || row['Picklist Values'] || '';
-        if (picklistString) {
-          try {
-            picklistValues = JSON.parse(picklistString);
-          } catch {
-            // If not JSON, treat as comma-separated values
-            picklistValues = picklistString.split(',').map((v: string) => v.trim()).filter((v: string) => v);
-          }
+        const picklistString = row.PicklistValues || row.picklistValues || '';
+        if (picklistString && picklistString.trim()) {
+          // Split by comma and clean up
+          picklistValues = picklistString.split(',').map((v: string) => v.trim()).filter((v: string) => v);
         }
 
-        // Parse tags if they exist
-        let tags = null;
-        const tagsString = row.tags || row.Tags || '';
-        if (tagsString) {
-          try {
-            tags = JSON.parse(tagsString);
-          } catch {
-            // If not JSON, treat as comma-separated values
-            tags = tagsString.split(',').map((v: string) => v.trim()).filter((v: string) => v);
-          }
+        // Parse tags if they exist - using ComplianceCategory and other relevant fields
+        let tags = [];
+        if (row.ComplianceCategory && row.ComplianceCategory.trim()) {
+          tags.push(row.ComplianceCategory.trim());
         }
+        if (row.TagIds && row.TagIds.trim()) {
+          const tagIds = row.TagIds.split(',').map((v: string) => v.trim()).filter((v: string) => v);
+          tags = tags.concat(tagIds);
+        }
+        // Add data type as a tag for easier searching
+        if (dataType) {
+          tags.push(dataType);
+        }
+        const finalTags = tags.length > 0 ? tags : null;
 
         return {
           fieldLabel,
@@ -194,7 +193,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           helpText: helpText || null,
           formula: formula || null,
           picklistValues,
-          tags,
+          tags: finalTags,
           isRequired,
           isCustom,
         };
