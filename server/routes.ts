@@ -66,7 +66,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Convert search plan to legacy entity format for logging
       const legacyEntities = {
         object: searchPlan.targetObject,
-        keywords: searchPlan.rawKeywords,
+        keywords: searchPlan.rawKeywords || [],
         dataType: searchPlan.dataTypeFilter?.value as string || null,
         intent: searchPlan.intent
       };
@@ -74,12 +74,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Log the query for analytics
       await storage.logQuery(query, legacyEntities, results.length, processingTime, true);
       
-      // Build enhanced search summary
-      const summary = `Found ${results.length} fields using structured search plan${searchPlan.targetObject ? ` for ${searchPlan.targetObject}` : ''}`;
+      // Build enhanced search summary using the plan
+      const summary = buildSearchSummary(searchPlan, results.length);
       
       res.json({
         query,
-        searchPlan,
+        entities: searchPlan, // Include search plan as entities for frontend compatibility
         results,
         resultCount: results.length,
         summary,

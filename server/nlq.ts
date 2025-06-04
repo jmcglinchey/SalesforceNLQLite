@@ -212,19 +212,26 @@ Now analyze this query: "${query}"
   }
 }
 
-export function buildSearchSummary(entities: NLQEntity, resultCount: number): string {
+export function buildSearchSummary(plan: NLQSearchPlan, resultCount: number): string {
   const parts: string[] = [];
   
-  if (entities.object) {
-    parts.push(`on ${entities.object} object`);
+  if (plan.targetObject) {
+    parts.push(`on ${plan.targetObject} object`);
   }
   
-  if (entities.dataType) {
-    parts.push(`of type ${entities.dataType}`);
+  if (plan.dataTypeFilter) {
+    parts.push(`of type ${plan.dataTypeFilter.value}`);
   }
   
-  if (entities.keywords.length > 0) {
-    parts.push(`matching "${entities.keywords.join(', ')}"`);
+  // Extract keywords from filter groups or use raw keywords
+  const keywords = plan.rawKeywords && plan.rawKeywords.length > 0 
+    ? plan.rawKeywords 
+    : plan.filterGroups.flatMap(group => 
+        group.conditions.map(condition => condition.value)
+      ).filter(value => typeof value === 'string' && value.length > 0);
+  
+  if (keywords.length > 0) {
+    parts.push(`matching "${keywords.join(', ')}"`);
   }
   
   const summary = parts.length > 0 ? ` ${parts.join(' ')}` : '';
