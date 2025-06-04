@@ -424,6 +424,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Clear objects data endpoint
+  app.post("/api/clear-objects", async (req, res) => {
+    try {
+      await storage.clearSalesforceObjects();
+      res.json({
+        message: "Successfully cleared all Salesforce objects data",
+        objectCount: 0
+      });
+    } catch (error) {
+      console.error("Clear objects error:", error);
+      res.status(500).json({ 
+        error: "Failed to clear objects data",
+        message: error instanceof Error ? error.message : "Unknown error occurred"
+      });
+    }
+  });
+
   // Example queries endpoint
   app.get("/api/examples", (req, res) => {
     const examples = [
